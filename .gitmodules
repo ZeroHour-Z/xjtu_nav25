@@ -1,0 +1,6 @@
+[submodule "src/rm_driver/livox_ros_driver2"]
+	path = src/rm_driver/livox_ros_driver2
+	url = https://gitee.com/SMBU-POLARBEAR/livox_ros_driver2_humble.git
+[submodule "src/rm_localization/FAST_LIO"]
+	path = src/rm_localization/FAST_LIO
+	url = https://github.com/LihanChen2004/FAST_LIO.git
