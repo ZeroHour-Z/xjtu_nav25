@@ -45,7 +45,7 @@ def generate_launch_description():
         # Traversability node args (same defaults as single-node launch)
         DeclareLaunchArgument('input_topic', default_value='/livox/points'),
         DeclareLaunchArgument('frame_id', default_value='map'),
-        DeclareLaunchArgument('resolution', default_value='0.05'),
+        DeclareLaunchArgument('resolution', default_value='0.025'),
         DeclareLaunchArgument('width_m', default_value='10.0'),
         DeclareLaunchArgument('height_m', default_value='10.0'),
         DeclareLaunchArgument('origin_x', default_value='-5.0'),

@@ -12,6 +12,10 @@
 #include <termios.h>
 #include <errno.h>
 #include <sys/ioctl.h>
+#include <semaphore.h>
+#include <sys/mman.h>
+#include <sys/stat.h>
+#include <cstring>
 
 using namespace std::chrono_literals;
 
@@ -19,6 +23,7 @@ using namespace std::chrono_literals;
 // - 参数：port=/dev/ttyACM0, baud=115200
 // - 订阅: /rm_comm/tx_packet (handler 打包好的 64 字节，std_msgs/String)
 // - 发布: /rm_comm/rx_packet (从串口读取的原始数据，std_msgs/String)
+// - 可选: 当参数 use_shm=true 时，使用 POSIX 共享内存 + 信号量替代 ROS topic 进行进程间通信
 
 namespace {
 
@@ -34,6 +39,15 @@ static speed_t to_baud_constant(int baud) {
   }
 }
 
+struct ShmTx {
+  uint32_t len;
+  uint8_t data[64];
+};
+struct ShmRx {
+  uint32_t len;
+  uint8_t data[512];
+};
+
 }
 
 class SerialRwNode : public rclcpp::Node {
@@ -43,6 +57,9 @@ public:
     baud_ = this->declare_parameter<int>("baud", 115200);
     reopen_interval_ms_ = this->declare_parameter<int>("reopen_interval_ms", 500);
 
+    use_shm_ = this->declare_parameter<bool>("use_shm", false);
+    shm_name_ = this->declare_parameter<std::string>("shm_name", "/rm_comm_shm");
+
     tx_sub_ = this->create_subscription<std_msgs::msg::String>(
       "/rm_comm/tx_packet", 10,
       std::bind(&SerialRwNode::onTxPacket, this, std::placeholders::_1));
@@ -50,9 +67,15 @@ public:
     rx_pub_ = this->create_publisher<std_msgs::msg::String>("/rm_comm/rx_packet", 10);
 
     running_.store(true);
+
+    if (use_shm_) {
+      setupSharedMemory();
+      shm_tx_thread_ = std::thread(&SerialRwNode::shmTxLoop, this);
+    }
+
     read_thread_ = std::thread(&SerialRwNode::readLoop, this);
 
-    RCLCPP_INFO(this->get_logger(), "serial_rw_node started. Using port %s, baud %d", port_.c_str(), baud_);
+    RCLCPP_INFO(this->get_logger(), "serial_rw_node started. Using port %s, baud %d, use_shm=%s", port_.c_str(), baud_, use_shm_?"true":"false");
   }
 
   ~SerialRwNode() override {
@@ -60,6 +83,13 @@ public:
     if (read_thread_.joinable()) {
       read_thread_.join();
     }
+    if (shm_tx_thread_.joinable()) {
+      // Post semaphore to unblock if waiting
+      if (tx_sem_) sem_post(tx_sem_);
+      shm_tx_thread_.join();
+    }
+
+    closeSharedMemory();
     closeSerial();
   }
 
@@ -70,6 +100,19 @@ private:
                            "tx_packet size %zu != 64, drop", msg->data.size());
       return;
     }
+
+    if (use_shm_) {
+      if (!tx_shm_) {
+        RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 2000, "tx_shm not ready; drop tx");
+        return;
+      }
+      // copy into shared memory and signal
+      std::memcpy(tx_shm_->data, msg->data.data(), 64);
+      tx_shm_->len = 64;
+      if (tx_sem_) sem_post(tx_sem_);
+      return;
+    }
+
     if (fd_ < 0) {
       // 触发重连由读线程负责，此处提示
       RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 2000,
@@ -92,6 +135,41 @@ private:
     }
   }
 
+  void shmTxLoop() {
+    while (running_.load()) {
+      if (!tx_sem_) {
+        std::this_thread::sleep_for(10ms);
+        continue;
+      }
+      if (sem_wait(tx_sem_) != 0) {
+        if (!running_.load()) break;
+        continue;
+      }
+      if (!running_.load()) break;
+      if (!tx_shm_) continue;
+      uint32_t len = tx_shm_->len;
+      if (len == 0 || len > sizeof(tx_shm_->data)) continue;
+      // write to serial
+      if (fd_ < 0) {
+        RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 2000, "serial not open; drop shm tx");
+        continue;
+      }
+      const uint8_t *data = tx_shm_->data;
+      size_t remaining = len;
+      while (remaining > 0) {
+        ssize_t n = ::write(fd_, data, remaining);
+        if (n < 0) {
+          if (errno == EINTR) continue;
+          RCLCPP_ERROR(this->get_logger(), "write error (shmTx): %s", std::strerror(errno));
+          closeSerial();
+          break;
+        }
+        remaining -= static_cast<size_t>(n);
+        data += n;
+      }
+    }
+  }
+
   void readLoop() {
     while (running_.load()) {
       if (fd_ < 0) {
@@ -104,9 +182,16 @@ private:
       uint8_t buf[512];
       ssize_t n = ::read(fd_, buf, sizeof(buf));
       if (n > 0) {
-        std_msgs::msg::String out;
-        out.data.assign(reinterpret_cast<char*>(buf), reinterpret_cast<char*>(buf) + n);
-        rx_pub_->publish(out);
+        if (use_shm_ && rx_shm_) {
+          uint32_t to_copy = static_cast<uint32_t>(std::min<ssize_t>(n, static_cast<ssize_t>(sizeof(rx_shm_->data))));
+          std::memcpy(rx_shm_->data, buf, to_copy);
+          rx_shm_->len = to_copy;
+          if (rx_sem_) sem_post(rx_sem_);
+        } else {
+          std_msgs::msg::String out;
+          out.data.assign(reinterpret_cast<char*>(buf), reinterpret_cast<char*>(buf) + n);
+          rx_pub_->publish(out);
+        }
         continue;
       }
 
@@ -186,17 +271,84 @@ private:
     }
   }
 
+  void setupSharedMemory() {
+    std::string tx_name = shm_name_ + std::string("_tx");
+    std::string rx_name = shm_name_ + std::string("_rx");
+    std::string tx_sem_name = shm_name_ + std::string("_tx_sem");
+    std::string rx_sem_name = shm_name_ + std::string("_rx_sem");
+
+    // open or create
+    tx_shm_fd_ = shm_open(tx_name.c_str(), O_CREAT | O_RDWR, 0666);
+    rx_shm_fd_ = shm_open(rx_name.c_str(), O_CREAT | O_RDWR, 0666);
+    if (tx_shm_fd_ < 0 || rx_shm_fd_ < 0) {
+      RCLCPP_WARN(this->get_logger(), "shm_open failed: %s", std::strerror(errno));
+      return;
+    }
+    ftruncate(tx_shm_fd_, sizeof(ShmTx));
+    ftruncate(rx_shm_fd_, sizeof(ShmRx));
+
+    tx_shm_ = static_cast<ShmTx*>(mmap(nullptr, sizeof(ShmTx), PROT_READ | PROT_WRITE, MAP_SHARED, tx_shm_fd_, 0));
+    rx_shm_ = static_cast<ShmRx*>(mmap(nullptr, sizeof(ShmRx), PROT_READ | PROT_WRITE, MAP_SHARED, rx_shm_fd_, 0));
+    if (tx_shm_ == MAP_FAILED || rx_shm_ == MAP_FAILED) {
+      RCLCPP_WARN(this->get_logger(), "mmap failed");
+      tx_shm_ = nullptr;
+      rx_shm_ = nullptr;
+      return;
+    }
+    // initialize lengths
+    tx_shm_->len = 0;
+    rx_shm_->len = 0;
+
+    tx_sem_ = sem_open(tx_sem_name.c_str(), O_CREAT, 0666, 0);
+    rx_sem_ = sem_open(rx_sem_name.c_str(), O_CREAT, 0666, 0);
+    if (tx_sem_ == SEM_FAILED || rx_sem_ == SEM_FAILED) {
+      RCLCPP_WARN(this->get_logger(), "sem_open failed");
+      if (tx_sem_ != SEM_FAILED) sem_close(tx_sem_);
+      if (rx_sem_ != SEM_FAILED) sem_close(rx_sem_);
+      tx_sem_ = nullptr;
+      rx_sem_ = nullptr;
+    }
+  }
+
+  void closeSharedMemory() {
+    if (tx_shm_) {
+      munmap(tx_shm_, sizeof(ShmTx));
+      tx_shm_ = nullptr;
+    }
+    if (rx_shm_) {
+      munmap(rx_shm_, sizeof(ShmRx));
+      rx_shm_ = nullptr;
+    }
+    if (tx_shm_fd_ >= 0) { close(tx_shm_fd_); tx_shm_fd_ = -1; }
+    if (rx_shm_fd_ >= 0) { close(rx_shm_fd_); rx_shm_fd_ = -1; }
+    if (tx_sem_ && tx_sem_ != SEM_FAILED) { sem_close(tx_sem_); tx_sem_ = nullptr; }
+    if (rx_sem_ && rx_sem_ != SEM_FAILED) { sem_close(rx_sem_); rx_sem_ = nullptr; }
+    // Note: do not shm_unlink/sem_unlink here to allow other process reuse
+  }
+
   // members
   std::string port_;
   int baud_ {115200};
   int reopen_interval_ms_ {500};
 
+  bool use_shm_ {false};
+  std::string shm_name_{"/rm_comm_shm"};
+
   rclcpp::Subscription<std_msgs::msg::String>::SharedPtr tx_sub_;
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr rx_pub_;
 
   std::thread read_thread_;
+  std::thread shm_tx_thread_;
   std::atomic<bool> running_ {false};
   int fd_ {-1};
+
+  // shared mem
+  int tx_shm_fd_ {-1};
+  int rx_shm_fd_ {-1};
+  ShmTx *tx_shm_ {nullptr};
+  ShmRx *rx_shm_ {nullptr};
+  sem_t *tx_sem_ {nullptr};
+  sem_t *rx_sem_ {nullptr};
 };
 
 int main(int argc, char ** argv) {

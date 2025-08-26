@@ -10,32 +10,38 @@ from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
 import os 
 
-
 def generate_launch_description():
 	rviz_arg = DeclareLaunchArgument('rviz', default_value='true')
-	use_sim_time_arg = DeclareLaunchArgument('use_sim_time', default_value='true')
-	map_arg = DeclareLaunchArgument('map', default_value=PathJoinSubstitution([FindPackageShare('point_lio'), 'PCD', 'blue', 'map.pcd']))
-	# Tunable parameters for global localization
-	freq_localization_arg = DeclareLaunchArgument('freq_localization', default_value='0.5')
-	localization_th_arg = DeclareLaunchArgument('localization_th', default_value='0.05')
-	map_voxel_size_arg = DeclareLaunchArgument('map_voxel_size', default_value='0.2')
-	scan_voxel_size_arg = DeclareLaunchArgument('scan_voxel_size', default_value='0.1')
-	fov_arg = DeclareLaunchArgument('fov', default_value='6.28')
-	fov_far_arg = DeclareLaunchArgument('fov_far', default_value='30.0')
-	use_gicp_arg = DeclareLaunchArgument('use_gicp', default_value='false')
+	use_sim_time_arg = DeclareLaunchArgument('use_sim_time', default_value='false')
+	map_arg = DeclareLaunchArgument('map', default_value=PathJoinSubstitution([FindPackageShare('point_lio'), 'PCD', 'red', 'map.pcd']))
 
 	# Point-LIO node
 	point_lio_dir = get_package_share_directory("point_lio")
-	point_lio_cfg = os.path.join(point_lio_dir, "config", "mid360.yaml")
+	point_lio_cfg = os.path.join(point_lio_dir, "config", "build_map.yaml")
+	point_lio_params = {
+		"use_imu_as_input": False,
+		"prop_at_freq_of_imu": False,
+		"check_satu": True,
+		"init_map_size": 10,
+		"point_filter_num": 3,
+		"space_down_sample": True,
+		"filter_size_surf": 0.1,
+		"filter_size_map": 0.2,
+		"cube_side_length": 500.0,
+		"runtime_pos_log_enable": False,
+		"use_sim_time": False,
+	}
+	point_lio_params_list = []
 
-	point_lio_params = []
+	# Append YAML if exists
 	if os.path.exists(point_lio_cfg):
-		point_lio_params.append(point_lio_cfg)
+		point_lio_params_list.append(point_lio_cfg)
+	point_lio_params_list.append(point_lio_params)
 
 	point_lio_node = Node(
 		package="point_lio",
 		executable="pointlio_mapping",
-		parameters=point_lio_params,
+		parameters=point_lio_params_list,
 		remappings=[("/tf", "tf"), ("/tf_static", "tf_static")],
 		output="screen",
 	)
@@ -66,14 +72,7 @@ def generate_launch_description():
 			'use_sim_time': LaunchConfiguration('use_sim_time'),
 			'map_frame': 'map3d',
 			'odom_frame': 'camera_init',
-			'base_link_frame': 'base_link',
-			'freq_localization': LaunchConfiguration('freq_localization'),
-			'localization_th': LaunchConfiguration('localization_th'),
-			'map_voxel_size': LaunchConfiguration('map_voxel_size'),
-			'scan_voxel_size': LaunchConfiguration('scan_voxel_size'),
-			'fov': LaunchConfiguration('fov'),
-			'fov_far': LaunchConfiguration('fov_far'),
-			'use_gicp': LaunchConfiguration('use_gicp')
+			'base_link_frame': 'base_link'
 		}]
 	)
 
@@ -91,7 +90,7 @@ def generate_launch_description():
 		}]
 	)
 
-	# Static TFs
+	# Static TFs (replicating ROS1 args; ROS2 tool doesn't need frequency)
 	# body -> base_link
 	tf_body2base = Node(
 		package='tf2_ros',
@@ -133,14 +132,6 @@ def generate_launch_description():
 		rviz_arg,
 		use_sim_time_arg,
 		map_arg,
-		freq_localization_arg,
-		localization_th_arg,
-		map_voxel_size_arg,
-		scan_voxel_size_arg,
-		fov_arg,
-		fov_far_arg,
-		use_gicp_arg,
-		point_lio_node,
 		pcd_pub,
 		global_loc,
 		transform_fusion,

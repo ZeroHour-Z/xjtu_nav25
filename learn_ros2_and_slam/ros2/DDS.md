@@ -1,5 +1,3 @@
-下面用通俗但不失准确的方式，带你把 ROS 2 Humble 里的 DDS 机制整体过一遍：
-
 # DDS 在 ROS 2 里的位置
 
 * \*\*DDS（Data Distribution Service）\*\*是 ROS 2 采用的底层通信中间件标准；
