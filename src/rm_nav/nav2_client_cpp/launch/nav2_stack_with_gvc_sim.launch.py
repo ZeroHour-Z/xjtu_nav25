@@ -9,7 +9,7 @@ import os
 def generate_launch_description():
     use_sim_time = False
     autostart = True
-    map_yaml = '/home/ovalene/xjtu_nav25/src/rm_localization/Point-LIO/PCD/red/newMap.yaml'
+    map_yaml = '/home/xjturm/xjtu_nav25/src/rm_localization/Point-LIO/PCD/red/newMap.yaml'
 
     default_params = PathJoinSubstitution([
         FindPackageShare('nav2_client_cpp'), 'config', 'nav2_params.yaml'

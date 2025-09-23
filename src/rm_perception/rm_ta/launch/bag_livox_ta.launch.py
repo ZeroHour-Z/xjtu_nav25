@@ -33,7 +33,7 @@ def generate_launch_description():
 
     return LaunchDescription([
         # Common args
-        DeclareLaunchArgument('bag_path', default_value='/home/ovalene/xjtu_nav25/rosbags', description='Path to rosbag2 directory. Leave empty to skip playback.'),
+        DeclareLaunchArgument('bag_path', default_value='/home/xjturm/xjtu_nav25/rosbags', description='Path to rosbag2 directory. Leave empty to skip playback.'),
         DeclareLaunchArgument('bag_rate', default_value='1.0'),
         DeclareLaunchArgument('loop', default_value='true'),
         DeclareLaunchArgument('use_rviz', default_value='true'),

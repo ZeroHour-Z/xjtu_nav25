@@ -9,7 +9,7 @@ bt_navigator:
     enable_groot_monitoring: True
     groot_zmq_publisher_port: 1666
     groot_zmq_server_port: 1667
-    default_nav_to_pose_bt_xml: /home/ovalene/xjtu_nav25/src/rm_nav/nav2_client_cpp/config/bt.xml
+    default_nav_to_pose_bt_xml: /home/xjturm/xjtu_nav25/src/rm_nav/nav2_client_cpp/config/bt.xml
     plugin_lib_names:
     # - find_safe_goal_bt_node
     - nav2_compute_path_to_pose_action_bt_node

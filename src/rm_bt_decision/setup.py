@@ -18,7 +18,6 @@ setup(
     maintainer_email='dev@xjtu.local',
     description='Behavior Tree framework for ROS 2 (Humble) using py_trees, with YAML/Python trees and Nav2 action integration.',
     license='MIT',
-    tests_require=['pytest'],
     entry_points={
         'console_scripts': [
             'bt_node = rm_bt_decision.tree_node:main',

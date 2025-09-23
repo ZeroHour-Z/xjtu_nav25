@@ -13,10 +13,8 @@
   <depend>geometry_msgs</depend>
   <depend>nav_msgs</depend>
 
-  <!-- Optional serial driver message packages (Humble: serial_driver_msgs in transport_drivers; some distros: serial_msgs) -->
-  <exec_depend>serial_driver</exec_depend>
-  <depend condition="$ROS_DISTRO == humble">serial_driver_msgs</depend>
-  <depend>serial_msgs</depend>
+  <depend>serial_driver</depend>
+  <depend>libserial-dev</depend>
 
   <exec_depend>launch</exec_depend>
   <exec_depend>launch_ros</exec_depend>
