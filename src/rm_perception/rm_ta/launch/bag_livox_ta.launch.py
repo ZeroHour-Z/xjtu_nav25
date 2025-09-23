@@ -53,7 +53,7 @@ def generate_launch_description():
         DeclareLaunchArgument('z_clip_min', default_value='-2.0'),
         DeclareLaunchArgument('z_clip_max', default_value='2.0'),
         DeclareLaunchArgument('min_points_per_cell', default_value='3'),
-        DeclareLaunchArgument('step_threshold_m', default_value='0.15'),
+        DeclareLaunchArgument('step_threshold_m', default_value='0.1'),
         DeclareLaunchArgument('step_max_threshold_m', default_value='1.0'),
         DeclareLaunchArgument('density_min_pts_per_m3', default_value='60.0'),
         DeclareLaunchArgument('min_points_for_density', default_value='3'),

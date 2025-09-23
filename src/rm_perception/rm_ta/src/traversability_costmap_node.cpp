@@ -13,6 +13,7 @@
 #include <vector>
 #include <algorithm>
 #include <cmath>
+#include <limits>
 
 class TraversabilityCostmapNode : public rclcpp::Node {
 public:
@@ -41,12 +42,7 @@ public:
     RCLCPP_INFO(get_logger(), "Grid %dx%d @ %.3fm, origin(%.2f, %.2f)", width_px_, height_px_,
                 resolution_, origin_x_, origin_y_);
 
-    // Precompute per-cell volume for density (m^3)
-    cell_volume_m3_ = resolution_ * resolution_ * std::max(0.0, z_clip_max_ - z_clip_min_);
-    if (cell_volume_m3_ <= 0.0) {
-      RCLCPP_WARN(get_logger(), "Computed non-positive cell volume (%.6f). Check z_clip_min/max and resolution.", cell_volume_m3_);
-      cell_volume_m3_ = std::numeric_limits<double>::epsilon();
-    }
+    // Density now uses per-cell volume computed from that cell's z_min/z_max
 
     // Publisher
     costmap_pub_ = this->create_publisher<nav_msgs::msg::OccupancyGrid>("/traversability_costmap", 10);
@@ -114,22 +110,38 @@ private:
 
     // Prepare OccupancyGrid data
     const int8_t UNKNOWN = -1;
-    const int8_t FREE = 0;
-    const int8_t LETHAL = 100;
+    const int8_t FREE = 0;          // 两判据都未触发
+    const int8_t DENSITY_ONLY = 60; // 仅密度不足触发
+    const int8_t STEP_ONLY = 80;    // 仅台阶/起伏触发
+    const int8_t BOTH = 100;        // 两者都触发（最危险）
     std::vector<int8_t> data(width * height, UNKNOWN);
 
     // Compute criteria per observed cell
     size_t n_obs = 0, n_lethal = 0;
+    size_t n_step_only = 0, n_density_only = 0, n_both = 0;
     for (auto& kv : cell_z) {
       auto& zs = kv.second;
       const int num_points = static_cast<int>(zs.size());
 
-      // Density criterion (pts/m^3)
-      const double density_pts_per_m3 = static_cast<double>(num_points) / cell_volume_m3_;
+      // Compute per-cell volume from z_min/z_max within this cell
+      double cell_volume_m3 = std::numeric_limits<double>::epsilon();
+      if (num_points > 0) {
+        auto [min_it, max_it] = std::minmax_element(zs.begin(), zs.end());
+        const double z_min = static_cast<double>(*min_it);
+        const double z_max = static_cast<double>(*max_it);
+        const double thickness = std::max(0.0, z_max - z_min);
+        cell_volume_m3 = resolution_ * resolution_ * std::max(thickness, std::numeric_limits<double>::epsilon());
+      }
+
+      // Density criterion (pts/m^3) using per-cell volume
+      const double density_pts_per_m3 = (cell_volume_m3 > 0.0)
+        ? static_cast<double>(num_points) / cell_volume_m3
+        : std::numeric_limits<double>::infinity();
       const bool density_sparse = (num_points >= min_points_for_density_) &&
                                   (density_pts_per_m3 < density_min_pts_per_m3_);
 
-      bool lethal = false;
+      bool step_hazard = false;
+      bool density_hazard = false;
 
       // Step/elevation criterion only if enough points for robust quantiles
       if (num_points >= min_points_per_cell_) {
@@ -139,18 +151,29 @@ private:
         const float dh = q90 - q10;
         if ((dh >= static_cast<float>(step_threshold_m_)) &&
             (dh <= static_cast<float>(step_max_threshold_m_))) {
-          lethal = true;
+          step_hazard = true;
         }
       }
 
       // Apply density rule to capture voids/holes (low occupancy)
       if (density_sparse) {
-        lethal = true;
+        density_hazard = true;
       }
 
-      data[kv.first] = lethal ? LETHAL : FREE;
+      int8_t v = FREE;
+      if (step_hazard && density_hazard) {
+        v = BOTH;
+        ++n_both; ++n_lethal;
+      } else if (step_hazard) {
+        v = STEP_ONLY;
+        ++n_step_only; ++n_lethal;
+      } else if (density_hazard) {
+        v = DENSITY_ONLY;
+        ++n_density_only; ++n_lethal;
+      }
+
+      data[kv.first] = v;
       ++n_obs;
-      if (lethal) ++n_lethal;
     }
 
     // Publish
@@ -159,7 +182,8 @@ private:
     costmap_pub_->publish(grid_);
 
     RCLCPP_INFO_THROTTLE(get_logger(), *this->get_clock(), 2000,
-                         "cells observed=%zu, lethal=%zu", n_obs, n_lethal);
+                         "cells observed=%zu, lethal=%zu (step=%zu, density=%zu, both=%zu)",
+                         n_obs, n_lethal, n_step_only, n_density_only, n_both);
   }
 
   // Params
@@ -178,7 +202,6 @@ private:
   // Derived
   int width_px_;
   int height_px_;
-  double cell_volume_m3_;
 
   // ROS interfaces
   rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr sub_;

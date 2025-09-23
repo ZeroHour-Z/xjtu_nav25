@@ -1,19 +1,20 @@
 // #include "ros/ros.h"
 #include <cstdint>
 #include <map>
+#include <string>
 
 #pragma pack(1)
 typedef struct
 {                         // 都使用朴素机器人坐标系,前x,左y,上z
     uint8_t frame_header; // 帧头 0x72
-    float coo_x;          // x 坐标
-    float coo_y;          // y 坐标
-    uint8_t stop;         // 停止
     uint8_t color;        // 机器人颜色（0=RED, 1=BLUE）
-    uint8_t eSentryState;
-    uint8_t eSentryEvent;
-    uint8_t constrained_defense_state;
-    uint8_t terrian_pass;
+    uint8_t sentry_command;      // 命令
+    uint8_t eSentryState;       // 当前状态
+    uint8_t eSentryEvent;    // 事件
+    uint16_t hp_remain;      // 剩余生命值
+    uint16_t bullet_remain;  // 剩余子弹量
+    float time_remain;       // 剩余时间，单位秒
+    uint32_t reserve_1 : 16;
     uint32_t reserve_2 : 32;
     uint32_t reserve_3 : 32;
     uint32_t reserve_4 : 32;
@@ -36,17 +37,13 @@ typedef struct
     uint8_t frame_header;  // 帧头 0x72
     float x_speed;         // x 方向速度
     float y_speed;         // y 方向速度
-    uint8_t modified_flag; // 目标点是否修正过
-    float coo_x_current;   // 当前 x 坐标
-    float coo_y_current;   // 当前 y 坐标
-    float yaw;
+    float x_current;   // 当前 x 坐标
+    float y_current;   // 当前 y 坐标
+    float x_target;   // 当前 x 坐标
+    float y_target;   // 当前 y 坐标
+    float yaw_current; // 当前云台偏航角
+    float yaw_desired;  // 期望云台偏航角
     uint8_t sentry_region;
-    float target_x;
-    float target_y;
-    uint8_t bNoAttackEngineer;
-    uint8_t bAttackOutpost;
-    uint8_t bNoPatrol;
-    float desire_angle;
     uint32_t reserve_1 : 8;
     uint32_t reserve_2 : 32;
     uint32_t reserve_3 : 32;
@@ -54,9 +51,15 @@ typedef struct
     uint32_t reserve_5 : 32;
     uint32_t reserve_6 : 32;
     uint32_t reserve_7 : 32;
+    uint32_t reserve_8 : 32;  // 填充到64字节，保持帧尾为最后一字节
     uint8_t frame_tail; // 帧尾 0x4D
 } navInfo_t;
 #pragma pack()
+
+#if defined(__cplusplus)
+    static_assert(sizeof(navInfo_t) == 64, "navInfo_t must be 64 bytes");
+    static_assert(sizeof(navCommand_t) == 64, "navInfo_t must be 64 bytes");
+#endif
 
 enum sentry_region{
     local = 0,
