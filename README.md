@@ -54,3 +54,15 @@ bfs脱困
 
 做这个的最初目的是清理在ROS1框架下迭代出来的石山和低水平代码。
 构建一个足够简单、清晰和标准化的框架，以够用的水准(我的水平很难实现优秀的水准)完成RMUL和RMUC赛事，在自我学习的过程中推动robomaster比赛上位机导航算法的交流和发展。
+
+## 配置环境
+
+### git submodule
+
+### rosdep 
+
+```bash
+rosdep init 
+rosdep update
+rosdep install --from-paths src --ignore-src -r -y  
+```

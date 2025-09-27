@@ -31,9 +31,14 @@ def generate_launch_description():
     share_dir = get_package_share_directory('rm_ta')
     default_rviz_cfg = os.path.join(share_dir, 'rviz', 'traversability_default.rviz')
 
+    # Resolve default bag path relative to this file (repo root/rosbags)
+    script_dir = os.path.dirname(__file__)
+    repo_root = os.path.abspath(os.path.join(script_dir, '..', '..', '..', '..'))
+    default_bag_dir = os.path.join(repo_root, 'rosbags')
+
     return LaunchDescription([
         # Common args
-        DeclareLaunchArgument('bag_path', default_value='/home/xjturm/xjtu_nav25/rosbags', description='Path to rosbag2 directory. Leave empty to skip playback.'),
+        DeclareLaunchArgument('bag_path', default_value=default_bag_dir, description='Path to rosbag2 directory. Leave empty to skip playback.'),
         DeclareLaunchArgument('bag_rate', default_value='1.0'),
         DeclareLaunchArgument('loop', default_value='true'),
         DeclareLaunchArgument('use_rviz', default_value='true'),

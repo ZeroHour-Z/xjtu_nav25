@@ -131,16 +131,3 @@ static const std::map<uint8_t, std::string> event_map = {
     {sentry_event_e::outpost_destroyed, "outpost_destroyed"},
     {sentry_event_e::radar_lock_target, "radar_lock_target"},
     {sentry_event_e::operator_intervene, "operator_intervene"}};
-
-/*
-[ INFO] [1722604071.395386373]: Running Frequency: 38.820 Hz.
-2BDFA0823281: Get Image ERROR
-double free or corruption (!prev)
-[sensefull-1] process has died [pid 155772, exit code -6, cmd /home/xjturm/shaobing/devel/lib/sensefull/sense_full __name:=sensefull __log:=/home/xjturm/.ros/log/701f9dc2-50c9-11ef-9b26-bd69b05438ec/sensefull-1.log].
-log file: /home/xjturm/.ros/log/701f9dc2-50c9-11ef-9b26-bd69b05438ec/sensefull-1*.log
-all processes on machine have died, roslaunch will exit
-shutting down processing monitor...
-... shutting down processing monitor complete
-done
-
- */

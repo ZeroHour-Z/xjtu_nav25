@@ -35,9 +35,6 @@ def generate_launch_description():
     gvc_tracker_params = PathJoinSubstitution([
         FindPackageShare('global_velocity_controller'), 'config', 'tracker_params.yaml'
     ])
-    gvc_sim_params = PathJoinSubstitution([
-        FindPackageShare('global_velocity_controller'), 'config', 'simulator_params.yaml'
-    ])
 
     nodes = []
 
@@ -50,16 +47,16 @@ def generate_launch_description():
             parameters=[{ 'use_sim_time': use_sim_time, 'yaml_filename': map_yaml }]
         ))
     else:
-        nodes.append(LogInfo(msg=f"[nav2_stack_with_gvc_sim] Map YAML not found or empty, skip map_server: {map_yaml}"))
+        nodes.append(LogInfo(msg=f"[nav2_stack_with_gvc] Map YAML not found or empty, skip map_server: {map_yaml}"))
 
     # Static TF: map -> odom (identity), helps Nav2 costmaps expecting odom frame
-    nodes.append(Node(
-        package='tf2_ros',
-        executable='static_transform_publisher',
-        name='static_map_to_odom',
-        output='screen',
-        arguments=['0', '0', '0', '0', '0', '0', 'map', 'odom']
-    ))
+    # nodes.append(Node(
+    #     package='tf2_ros',
+    #     executable='static_transform_publisher',
+    #     name='static_map_to_odom',
+    #     output='screen',
+    #     arguments=['0', '0', '0', '0', '0', '0', 'map', 'odom']
+    # ))
 
     nodes.extend([
         Node(
@@ -110,13 +107,13 @@ def generate_launch_description():
         }]
     ))
 
-    # Global Velocity Controller in simulate mode, consuming /plan
+    # Global Velocity Controller consuming /plan, expects real robot feedback
     nodes.append(Node(
         package='global_velocity_controller',
         executable='global_velocity_controller_node',
         name='global_velocity_controller',
         output='screen',
-        parameters=[gvc_params, gvc_tracker_params, gvc_sim_params, { 'use_sim_time': use_sim_time }]
+        parameters=[gvc_params, gvc_tracker_params, { 'use_sim_time': use_sim_time, 'simulate': False }]
     ))
 
     # RViz2 with Nav2 default config; goal tool allows clicking Nav2 goals
