@@ -17,13 +17,13 @@ if (( MEM_KB < MEM_THRESHOLD_KB )); then
     # 由于faster_lio的编译需要消耗极多内存,不得已出此下策
     # 同时把faster_lio的-O3和调试全关了，不然电脑要爆swap了
     colcon build --symlink-install --parallel-workers 1 --packages-select faster_lio_ros2 --cmake-args -DCMAKE_BUILD_TYPE=Release 
-    colcon build --symlink-install --parallel-workers 1 --packages-select point_lio fast_lio --cmake-args -DCMAKE_BUILD_TYPE=Release 
+    colcon build --symlink-install --parallel-workers 1 --packages-select point_lio_ros2 fast_lio --cmake-args -DCMAKE_BUILD_TYPE=Release 
 else
     echo "系统内存大于等于8GB，将共同编译雷达里程计以提高效率..."
     # 内存充足，一起编译
-    colcon build --symlink-install --parallel-workers 3 --packages-select faster_lio_ros2 point_lio fast_lio --cmake-args -DCMAKE_BUILD_TYPE=Release
+    colcon build --symlink-install --parallel-workers 3 --packages-select faster_lio_ros2 point_lio_ros2 fast_lio --cmake-args -DCMAKE_BUILD_TYPE=Release
 fi
 
 # 这几个包基本不消耗什么内存,--parallel-workers可以开高一些
 echo "编译其余软件包..."
-colcon build --symlink-install --parallel-workers 4 --packages-skip livox_ros_driver2 faster_lio_ros2 point_lio fast_lio --cmake-args -DCMAKE_BUILD_TYPE=Release
+colcon build --symlink-install --parallel-workers 4 --packages-skip livox_ros_driver2 faster_lio_ros2 point_lio_ros2 fast_lio --cmake-args -DCMAKE_BUILD_TYPE=Release

@@ -19,7 +19,7 @@
   <!-- Backends we can launch -->
   <exec_depend>fast_lio</exec_depend>
   <exec_depend>faster_lio_ros2</exec_depend>
-  <exec_depend>point_lio</exec_depend>
+  <exec_depend>point_lio_ros2</exec_depend>
   <exec_depend>fast_lio_localization_ros2</exec_depend>
 
   <export>

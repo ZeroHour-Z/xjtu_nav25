@@ -48,16 +48,16 @@ def generate_launch_description():
         ),
         description="YAML for faster_lio_ros2 node",
     )
-    point_lio_params_arg = DeclareLaunchArgument(
-        "point_lio_params",
+    point_lio_ros2_params_arg = DeclareLaunchArgument(
+        "point_lio_ros2_params",
         default_value=PathJoinSubstitution(
             [
                 FindPackageShare("rm_localization_bringup"),
                 "config",
-                "point_lio_mid360.yaml",
+                "point_lio_ros2_mid360.yaml",
             ]
         ),
-        description="YAML for point_lio node",
+        description="YAML for point_lio_ros2 node",
     )
 
     # Optional global localization helpers
@@ -89,7 +89,7 @@ def generate_launch_description():
 
     fast_lio_params = LaunchConfiguration("fast_lio_params")
     faster_lio_params = LaunchConfiguration("faster_lio_params")
-    point_lio_params = LaunchConfiguration("point_lio_params")
+    point_lio_ros2_params = LaunchConfiguration("point_lio_ros2_params")
 
     # Backend nodes
     fast_lio_node = Node(
@@ -111,13 +111,13 @@ def generate_launch_description():
         condition=IfCondition(PythonExpression(["'", backend, "' == 'faster_lio'"])),
     )
 
-    point_lio_node = Node(
-        package="point_lio",
+    point_lio_ros2_node = Node(
+        package="point_lio_ros2",
         executable="pointlio_mapping",
         name="pointlio_mapping",
         output="screen",
         remappings=[("/tf", "tf"), ("/tf_static", "tf_static")],
-        parameters=[point_lio_params, {"use_sim_time": use_sim_time}],
+        parameters=[point_lio_ros2_params, {"use_sim_time": use_sim_time}],
         condition=IfCondition(PythonExpression(["'", backend, "' == 'point_lio'"])),
     )
 
@@ -217,7 +217,7 @@ def generate_launch_description():
 
     # RViz
     rviz_config_path = os.path.join(
-        get_package_share_directory("point_lio"), "rviz_cfg", "localize.rviz"
+        get_package_share_directory("point_lio_ros2"), "rviz_cfg", "localize.rviz"
     )
 
     rviz_node = Node(
@@ -234,7 +234,7 @@ def generate_launch_description():
             use_sim_time_arg,
             fast_lio_params_arg,
             faster_lio_params_arg,
-            point_lio_params_arg,
+            point_lio_ros2_params_arg,
             run_global_arg,
             map_arg,
             freq_localization_arg,
@@ -246,7 +246,7 @@ def generate_launch_description():
             use_gicp_arg,
             fast_lio_node,
             faster_lio_node,
-            point_lio_node,
+            point_lio_ros2_node,
             pcd_pub,
             global_loc,
             transform_fusion,
