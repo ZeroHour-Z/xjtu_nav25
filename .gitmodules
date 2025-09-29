@@ -4,3 +4,6 @@
 [submodule "src/rm_localization/fast_lio_localization_ros2"]
 	path = src/rm_localization/fast_lio_localization_ros2
 	url = https://github.com/Ovalene2333/fast_lio_localization_ros2.git
+[submodule "src/rm_localization/point_lio_ros2"]
+	path = src/rm_localization/point_lio_ros2
+	url = https://github.com/Ovalene2333/point_lio_ros2.git
