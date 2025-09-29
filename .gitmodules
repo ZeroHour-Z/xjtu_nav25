@@ -7,3 +7,6 @@
 [submodule "src/rm_localization/point_lio_ros2"]
 	path = src/rm_localization/point_lio_ros2
 	url = https://github.com/Ovalene2333/point_lio_ros2.git
+[submodule "src/rm_driver/livox_to_pointcloud2"]
+	path = src/rm_driver/livox_to_pointcloud2
+	url = https://github.com/koide3/livox_to_pointcloud2
