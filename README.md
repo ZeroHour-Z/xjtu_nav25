@@ -59,6 +59,10 @@ bfs脱困
 
 ### git submodule
 
+```bash
+git submodule update --init --recursive --depth 1
+```
+
 ### rosdep 
 
 ```bash
