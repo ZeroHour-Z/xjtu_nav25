@@ -13,7 +13,7 @@ import os
 def generate_launch_description():
 	rviz_arg = DeclareLaunchArgument('rviz', default_value='true')
 	use_sim_time_arg = DeclareLaunchArgument('use_sim_time', default_value='false')
-	map_arg = DeclareLaunchArgument('map', default_value=PathJoinSubstitution([FindPackageShare('point_lio'), 'PCD', 'red', 'map.pcd']))
+	map_arg = DeclareLaunchArgument('map', default_value=PathJoinSubstitution([FindPackageShare('rm_localization_bringup'), 'PCD', 'red', 'map.pcd']))
 
 	# Point-LIO node
 	point_lio_dir = get_package_share_directory("point_lio")

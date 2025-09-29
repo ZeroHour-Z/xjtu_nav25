@@ -35,7 +35,7 @@ def generate_launch_description():
     run_global_arg = DeclareLaunchArgument('run_global_localization', default_value='false')
     map_pcd_arg = DeclareLaunchArgument(
         'map_pcd',
-        default_value=PathJoinSubstitution([FindPackageShare('point_lio'), 'PCD', 'blue', 'map.pcd']))
+        default_value=PathJoinSubstitution([FindPackageShare('rm_localization_bringup'), 'PCD', 'blue', 'map.pcd']))
 
     # Common configurations
     backend = LaunchConfiguration('backend')

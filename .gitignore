@@ -3,7 +3,8 @@ build/
 install/
 log/
 olds/
-rosbags
+rosbags/
+tests/
 
 .vscode/
 .cursor/
