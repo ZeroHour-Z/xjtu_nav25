@@ -70,3 +70,7 @@ rosdep init
 rosdep update
 rosdep install --from-paths src --ignore-src -r -y  
 ```
+
+### 编译
+
+重要！在任何时候编译的时候请务必使用--symlink-install！否则某些基于pathlib解析的相对路径和功能包路径会出现错误！到时候你就等着debug去吧😅

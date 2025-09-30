@@ -3,8 +3,8 @@ rm_localization_bringup
 
 Centralized bringup package for rm_localization. All launch files and common parameter YAMLs live here so other backend packages (fast_lio, faster_lio_ros2, point_lio, fast_lio_localization_ros2) do not need git changes.
 
-Usage
------
+SLAM_and_localize.py
+-----------------
 
 - Fast-LIO mapping (default):
   `ros2 launch rm_localization_bringup localization_bringup.launch.py backend:=fast_lio`
@@ -20,3 +20,40 @@ Usage
 
 Parameter YAMLs are under `config/`. Edit them here to keep all robot-specific settings in one place.
 
+SLAM Mapping Only
+-----------------
+
+Launch mapping without localization extras using `SLAM_mapping_only.py`.
+
+- Live sensors + RViz (Point-LIO by default):
+  `ros2 launch rm_localization_bringup SLAM_mapping_only.py rviz:=true`
+
+- Choose backend explicitly:
+  `ros2 launch rm_localization_bringup SLAM_mapping_only.py backend:=fast_lio`
+
+- Play a rosbag (starts paused, uses simulated clock):
+  1) Launch mapping: `ros2 launch rm_localization_bringup SLAM_mapping_only.py rviz:=true`
+  2) In another terminal, manually play: `ros2 bag play rosbags/my_bag --clock --start-paused`
+
+- Record LiDAR and IMU while mapping:
+  `ros2 launch rm_localization_bringup SLAM_mapping_only.py record_rosbag:=true record_output:=rosbags/mapping_record`
+
+- Override backend parameter files:
+  - Fast-LIO: `fast_lio_params:=/path/to.yaml`
+  - FASTER-LIO: `faster_lio_params:=/path/to.yaml`
+  - Point-LIO: `point_lio_ros2_params:=/path/to.yaml`
+
+Arguments (key ones)
+- `backend`: `fast_lio` | `faster_lio` | `point_lio` (default: `point_lio`)
+- `rviz`: `true` | `false` (default: `true`)
+- `use_sim_time`: `true` | `false` (default: `true`)
+- Rosbag playback is manual; this launch file does not run `ros2 bag play`.
+- `record_rosbag`: record `/livox/lidar` and `/livox/imu` (default: `false`)
+- `record_output`: output prefix/path for recording (default: `rosbags/mapping_record`)
+- `pcd_save_en`: enable map PCD saving override (default: `True`)
+- `pcd_save_interval`: seconds between periodic saves; `-1` disables (default: `-1`)
+- Default params: `config/fast_lio_mid360.yaml`, `config/faster_lio_ros2.yaml`, `config/point_lio_mid360.yaml`
+
+Notes
+- Rosbag playback uses `--clock` and `--start-paused` so you can press space to start.
+- RViz config is loaded from the Point-LIO package: `point_lio_ros2/rviz_cfg/localize.rviz`.

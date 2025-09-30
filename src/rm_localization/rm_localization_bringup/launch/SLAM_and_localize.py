@@ -11,6 +11,7 @@ from launch.substitutions import (
     PythonExpression,
 )
 from launch_ros.actions import Node
+from datetime import datetime
 from launch_ros.substitutions import FindPackageShare
 import os
 
@@ -24,6 +25,15 @@ def generate_launch_description():
     )
     rviz_arg = DeclareLaunchArgument("rviz", default_value="true")
     use_sim_time_arg = DeclareLaunchArgument("use_sim_time", default_value="true")
+    pcd_save_en_arg = DeclareLaunchArgument("pcd_save_en", default_value="True")
+    pcd_save_interval_arg = DeclareLaunchArgument("pcd_save_interval", default_value="-1")
+    # Default PCD output to source package tmp/ to avoid install/share path
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")[2:]
+    default_src_pcd_path = f"/home/ovalene/xjtu_nav25/src/rm_localization/rm_localization_bringup/tmp/pcd_{ts}.pcd"
+    pcd_save_file_arg = DeclareLaunchArgument(
+        "pcd_save_file",
+        default_value=default_src_pcd_path,
+    )
 
     # Param files per backend (defaults under rm_localization_bringup/config)
     fast_lio_params_arg = DeclareLaunchArgument(
@@ -85,11 +95,24 @@ def generate_launch_description():
     # Configurations
     backend = LaunchConfiguration("backend")
     use_sim_time = LaunchConfiguration("use_sim_time")
+    pcd_save_en = LaunchConfiguration("pcd_save_en")
+    pcd_save_interval = LaunchConfiguration("pcd_save_interval")
+    pcd_save_file = LaunchConfiguration("pcd_save_file")
     run_global = LaunchConfiguration("run_global_localization")
 
     fast_lio_params = LaunchConfiguration("fast_lio_params")
     faster_lio_params = LaunchConfiguration("faster_lio_params")
     point_lio_ros2_params = LaunchConfiguration("point_lio_ros2_params")
+
+    # Common parameter bundle used by all backends
+    common_params = {
+        "use_sim_time": use_sim_time,
+        "pcd_save": {
+            "pcd_save_en": pcd_save_en,
+            "interval": pcd_save_interval,
+            "file_path": pcd_save_file,
+        },
+    }
 
     # Backend nodes
     fast_lio_node = Node(
@@ -97,7 +120,7 @@ def generate_launch_description():
         executable="fastlio_mapping",
         name="fastlio_mapping",
         output="screen",
-        parameters=[fast_lio_params, {"use_sim_time": use_sim_time}],
+        parameters=[fast_lio_params, common_params],
         condition=IfCondition(PythonExpression(["'", backend, "' == 'fast_lio'"])),
     )
 
@@ -106,7 +129,7 @@ def generate_launch_description():
         executable="run_mapping_online",
         name="laser_mapping",
         output="screen",
-        parameters=[faster_lio_params, {"use_sim_time": use_sim_time}],
+        parameters=[faster_lio_params, common_params],
         remappings=[("/Odometry", "/odom")],
         condition=IfCondition(PythonExpression(["'", backend, "' == 'faster_lio'"])),
     )
@@ -117,7 +140,7 @@ def generate_launch_description():
         name="pointlio_mapping",
         output="screen",
         remappings=[("/tf", "tf"), ("/tf_static", "tf_static")],
-        parameters=[point_lio_ros2_params, {"use_sim_time": use_sim_time}],
+        parameters=[point_lio_ros2_params, common_params],
         condition=IfCondition(PythonExpression(["'", backend, "' == 'point_lio'"])),
     )
 
@@ -244,6 +267,9 @@ def generate_launch_description():
             fov_arg,
             fov_far_arg,
             use_gicp_arg,
+            pcd_save_en_arg,
+            pcd_save_interval_arg,
+            pcd_save_file_arg,
             fast_lio_node,
             faster_lio_node,
             point_lio_ros2_node,

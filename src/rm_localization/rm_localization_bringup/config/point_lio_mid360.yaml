@@ -7,7 +7,7 @@
         init_map_size: 10
         point_filter_num: 3
         space_down_sample: True
-        filter_size_surf: 0.05
+        filter_size_surf: 0.1
         filter_size_map: 0.2
         ivox_nearby_type: 6
         runtime_pos_log_enable: False
@@ -62,6 +62,6 @@
             tf_send_en: True
 
         pcd_save:
-            pcd_save_en: False
+            pcd_save_en: True
             interval: -1
 

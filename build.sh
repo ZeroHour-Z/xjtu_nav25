@@ -16,8 +16,7 @@ if (( MEM_KB < MEM_THRESHOLD_KB )); then
     echo "系统内存小于8GB，为节省内存将分开编译各个雷达里程计..."
     # 由于faster_lio的编译需要消耗极多内存,不得已出此下策
     # 同时把faster_lio的-O3和调试全关了，不然电脑要爆swap了
-    colcon build --symlink-install --parallel-workers 1 --packages-select faster_lio_ros2 --cmake-args -DCMAKE_BUILD_TYPE=Release 
-    colcon build --symlink-install --parallel-workers 1 --packages-select point_lio_ros2 fast_lio --cmake-args -DCMAKE_BUILD_TYPE=Release 
+    colcon build --symlink-install --parallel-workers 1 --packages-select faster_lio_ros2 point_lio_ros2 fast_lio --cmake-args -DCMAKE_BUILD_TYPE=Release 
 else
     echo "系统内存大于等于8GB，将共同编译雷达里程计以提高效率..."
     # 内存充足，一起编译

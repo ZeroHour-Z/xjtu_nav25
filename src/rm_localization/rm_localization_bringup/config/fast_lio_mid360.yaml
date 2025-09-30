@@ -42,6 +42,6 @@
             scan_bodyframe_pub_en: true
 
         pcd_save:
-            pcd_save_en: true
+            pcd_save_en: false
             interval: -1
 
