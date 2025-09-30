@@ -240,7 +240,7 @@ def generate_launch_description():
 
     # RViz
     rviz_config_path = os.path.join(
-        get_package_share_directory("point_lio_ros2"), "rviz_cfg", "localize.rviz"
+        get_package_share_directory("rm_localization_bringup"), "rviz", "localize.rviz"
     )
 
     rviz_node = Node(

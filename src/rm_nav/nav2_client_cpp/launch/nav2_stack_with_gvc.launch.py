@@ -164,14 +164,14 @@ def generate_launch_description():
         )
     )
 
-    nodes.append(
-        Node(
-            package="rviz2",
-            executable="rviz2",
-            name="rviz2",
-            output="screen",
-            arguments=["-d", default_rviz_config],
-        )
-    )
+    # nodes.append(
+    #     Node(
+    #         package="rviz2",
+    #         executable="rviz2",
+    #         name="rviz2",
+    #         output="screen",
+    #         arguments=["-d", default_rviz_config],
+    #     )
+    # )
 
     return LaunchDescription(nodes)

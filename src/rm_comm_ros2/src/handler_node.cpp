@@ -37,7 +37,7 @@ class HandlerNode : public rclcpp::Node {
             "/rm_comm/rx_packet", 100, std::bind(&HandlerNode::onRxPacket, this, std::placeholders::_1));
 
         cmd_vel_sub_ = this->create_subscription<geometry_msgs::msg::Twist>(
-            "/cmd_vel_pid", 10, std::bind(&HandlerNode::onCmdVel, this, std::placeholders::_1));
+            "/cmd_vel", 10, std::bind(&HandlerNode::onCmdVel, this, std::placeholders::_1));
 
         odom_sub_ = this->create_subscription<nav_msgs::msg::Odometry>(
             "/Odometry", 10, std::bind(&HandlerNode::onOdom, this, std::placeholders::_1));
@@ -75,10 +75,11 @@ class HandlerNode : public rclcpp::Node {
 
    private:
     void onCmdVel(const geometry_msgs::msg::Twist::SharedPtr msg) {
+        // RCLCPP_INFO(this->get_logger(),"cmd_vel:%f",msg->linear.x);
         nav_info_.x_speed = msg->linear.x;
-        nav_info_.y_speed = -1.0f * static_cast<float>(msg->linear.y);
-        nav_info_.yaw_current = static_cast<float>(msg->angular.x);
-        nav_info_.yaw_desired = static_cast<float>(msg->angular.z);
+        nav_info_.y_speed = msg->linear.y;
+        nav_info_.yaw_current = msg->angular.x;
+        nav_info_.yaw_desired = msg->angular.z;
     }
 
     void onOdom(const nav_msgs::msg::Odometry::SharedPtr msg) {
@@ -101,13 +102,13 @@ class HandlerNode : public rclcpp::Node {
 
         // 3. 协议验证：在转换成结构体后，检查帧尾等成员变量是否符合协议
         if (received_cmd.frame_tail != 0x21) {
-            RCLCPP_WARN(this->get_logger(), "Invalid frame tail: expected 0x21, got 0x%02X", received_cmd.frame_tail);
+            // RCLCPP_WARN(this->get_logger(), "Invalid frame tail: expected 0x21, got 0x%02X", received_cmd.frame_tail);
             return;
         }
         // 4. 调用处理函数：所有检查通过后，数据有效，进行处理
         RCLCPP_INFO_THROTTLE(this->get_logger(), *this->get_clock(), 1000, "Successfully decoded navCommand_t packet.");
         last_cmd_ = received_cmd;
-        RCLCPP_WARN(this->get_logger(), "Bullet: %d", (int)received_cmd.bullet_remain);
+        // RCLCPP_WARN(this->get_logger(), "Bullet: %d", (int)received_cmd.bullet_remain);
         // handleNavCommand(last_cmd_);
     }
 
