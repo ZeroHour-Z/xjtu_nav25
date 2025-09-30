@@ -12,12 +12,12 @@ namespace rm_comm_ros2 {
 // 目标用于 64 字节包传输
 
 template <typename T>
-inline std::string to_bytes(const T &data) {
-	static_assert(std::is_standard_layout<T>::value, "Type must be standard layout");
-	std::string s;
-	s.resize(sizeof(T));
-	std::memcpy(s.data(), &data, sizeof(T));
-	return s;
+inline std::string to_bytes(const T &data)
+{
+    static_assert(std::is_standard_layout<T>::value, "Type T must be a standard layout type.");
+    std::vector<char> buffer(sizeof(T));
+    std::memcpy(buffer.data(), &data, sizeof(T));
+    return std::string(buffer.begin(), buffer.end());
 }
 
 // 从 std::string 反序列化为结构体，要求大小严格匹配
