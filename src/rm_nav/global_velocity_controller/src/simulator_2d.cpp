@@ -69,4 +69,4 @@ void Simulator2D::integrateBodyCommand(const Twist2D &cmd_body, double dt) {
   }
 }
 
-} // namespace gvc 
+}  // namespace gvc

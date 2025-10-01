@@ -52,15 +52,17 @@ class SimplifiedControllerNode : public rclcpp::Node {
 
         // 路径跟踪参数
         declare_parameter<double>("goal_tolerance", 0.1);
+        // 航向预测时间因子（0.0~1.0，通常0.5~1.0）
+        declare_parameter<double>("prediction_time_factor", 1.0);
 
         // --- 新增: 动态前瞻距离参数 ---
         declare_parameter<bool>("enable_dynamic_lookahead", true);
-        declare_parameter<double>("lookahead_distance", 0.5); // 如果动态关闭，则使用此固定值
+        declare_parameter<double>("lookahead_distance", 0.5);  // 如果动态关闭，则使用此固定值
         declare_parameter<double>("min_lookahead_distance", 0.3);
         declare_parameter<double>("max_lookahead_distance", 1.0);
-        declare_parameter<double>("curvature_window_distance", 2.0); // 计算曲率的路径长度
-        declare_parameter<double>("curvature_low", 0.1);  // 曲率阈值下限
-        declare_parameter<double>("curvature_high", 1.0); // 曲率阈值上限
+        declare_parameter<double>("curvature_window_distance", 2.0);  // 计算曲率的路径长度
+        declare_parameter<double>("curvature_low", 0.1);              // 曲率阈值下限
+        declare_parameter<double>("curvature_high", 1.0);             // 曲率阈值上限
 
         // 仿真相关参数
         declare_parameter<bool>("simulate", true);
@@ -74,6 +76,7 @@ class SimplifiedControllerNode : public rclcpp::Node {
         base_frame_ = get_parameter("base_frame").as_string();
         goal_tolerance_ = get_parameter("goal_tolerance").as_double();
         max_dt_ = get_parameter("max_dt").as_double();
+        prediction_time_factor_ = get_parameter("prediction_time_factor").as_double();
 
         kp_xy_ = get_parameter("kp_xy").as_double();
         ki_xy_ = get_parameter("ki_xy").as_double();
@@ -179,12 +182,32 @@ class SimplifiedControllerNode : public rclcpp::Node {
         if (!has_prev_time_) {
             prev_time_ = now;
             has_prev_time_ = true;
+            // --- 新增: 第一次循环时也记录航向角 ---
+            if (!has_prev_yaw_) {
+                prev_yaw_ = current_yaw;
+                has_prev_yaw_ = true;
+            }
             return;
         }
         double dt = (now - prev_time_).seconds();
         prev_time_ = now;
         if (dt <= 0.0) return;
         dt = std::min(dt, max_dt_);
+
+        // --- 核心修改 1: 航向角预测 ---
+        double predicted_yaw = current_yaw;  // 默认情况下，预测值等于当前值
+        if (has_prev_yaw_ && dt > 1e-6) {
+            // 根据前后两次的角度差，估算当前角速度
+            const double estimated_wz = normalizeAngle(current_yaw - prev_yaw_) / dt;
+            
+            // 预测一个短暂未来(例如半个控制周期)的航向角
+            // 可调参数 prediction_time_factor_，建议设为0.5~1.0
+            predicted_yaw = current_yaw + estimated_wz * dt * prediction_time_factor_;
+            predicted_yaw = normalizeAngle(predicted_yaw);
+            RCLCPP_INFO_THROTTLE(this->get_logger(),*this->get_clock(),1000, "Predicted yaw: %.3f (current: %.3f, estimated_wz: %.3f)", predicted_yaw, current_yaw, estimated_wz);
+        }
+        prev_yaw_ = current_yaw;  // 更新上一次的航向角
+        has_prev_yaw_ = true;
 
         // 5. 位置PID控制器 -> 输出期望速度 (在map坐标系下)
         integral_x_ += ex * dt;
@@ -202,33 +225,31 @@ class SimplifiedControllerNode : public rclcpp::Node {
         prev_ex_ = ex;
         prev_ey_ = ey;
 
-        // 6. 航向控制 (P控制器) -> 输出期望角速度
+        // 6. 航向控制,下位机只需要给出角度即可
         double target_yaw = std::atan2(ey, ex);
-        // double yaw_error = normalizeAngle(target_yaw - current_yaw);
-        // double wz_cmd = kp_yaw_ * yaw_error;
 
         // 7. 将map系速度指令转换为base_link系
-        const double cos_yaw = std::cos(current_yaw);
-        const double sin_yaw = std::sin(current_yaw);
+        const double cos_yaw = std::cos(predicted_yaw);
+        const double sin_yaw = std::sin(predicted_yaw);
         double vx_base_raw = cos_yaw * vx_map_cmd + sin_yaw * vy_map_cmd;
         double vy_base_raw = -sin_yaw * vx_map_cmd + cos_yaw * vy_map_cmd;
 
         // 8. 应用速度和加速度限制
         double vx_out = std::clamp(vx_base_raw, -max_vx_, max_vx_);
         double vy_out = std::clamp(vy_base_raw, -max_vy_, max_vy_);
-        // double wz_out = std::clamp(wz_cmd, -max_wz_, max_wz_);
 
         // 加速度限制
         const double max_dv = cmd_accel_limit_linear_ * dt;
         const double max_dw = cmd_accel_limit_angular_ * dt;
         vx_out = std::clamp(vx_out, last_cmd_vx_ - max_dv, last_cmd_vx_ + max_dv);
         vy_out = std::clamp(vy_out, last_cmd_vy_ - max_dv, last_cmd_vy_ + max_dv);
-        // wz_out = std::clamp(wz_out, last_cmd_wz_ - max_dw, last_cmd_wz_ + max_dw);
 
         // 9. 发布指令并更新仿真
         geometry_msgs::msg::Twist cmd;
         cmd.linear.x = vx_out;
         cmd.linear.y = vy_out;
+
+        // angular都是特殊设置,作为当前角度和目标角度的容器
         cmd.angular.x = current_yaw;
         cmd.angular.z = target_yaw;
         cmd_pub_->publish(cmd);
@@ -238,7 +259,7 @@ class SimplifiedControllerNode : public rclcpp::Node {
         last_cmd_wz_ = cmd.angular.z;
 
         if (simulate_) {
-            simulator_.integrateBodyCommand({cmd.linear.x, cmd.linear.y, 0}, dt);
+            simulator_.integrateBodyCommand({cmd.linear.x, cmd.linear.y, 1.0}, dt);
             publishSimulatedTransform(now);
         }
     }
@@ -289,7 +310,7 @@ class SimplifiedControllerNode : public rclcpp::Node {
                 closest_idx = i;
             }
         }
-        
+
         // *** 核心修改: 计算动态前瞻距离 ***
         const double current_lookahead_distance = computeDynamicLookaheadDistance(closest_idx);
 
@@ -312,10 +333,10 @@ class SimplifiedControllerNode : public rclcpp::Node {
     // *** 新增函数: 根据路径曲率计算动态前瞻距离 ***
     double computeDynamicLookaheadDistance(std::size_t start_index) const {
         if (!enable_dynamic_lookahead_) {
-            return lookahead_distance_; // 返回固定的前瞻距离
+            return lookahead_distance_;  // 返回固定的前瞻距离
         }
         if (last_path_.poses.size() < 3) {
-            return min_lookahead_distance_; // 路径太短，使用最小前瞻距离
+            return min_lookahead_distance_;  // 路径太短，使用最小前瞻距离
         }
 
         double accumulated_length_m = 0.0;
@@ -326,11 +347,13 @@ class SimplifiedControllerNode : public rclcpp::Node {
         // 在一个窗口内计算平均曲率
         while (i + 2 < last_path_.poses.size() && accumulated_length_m < curvature_window_distance_) {
             const auto &p0 = last_path_.poses[i].pose.position;
-            const auto &p1 = last_path_.poses[i+1].pose.position;
-            const auto &p2 = last_path_.poses[i+2].pose.position;
+            const auto &p1 = last_path_.poses[i + 1].pose.position;
+            const auto &p2 = last_path_.poses[i + 2].pose.position;
 
-            const double dx01 = p1.x - p0.x; const double dy01 = p1.y - p0.y;
-            const double dx12 = p2.x - p1.x; const double dy12 = p2.y - p1.y;
+            const double dx01 = p1.x - p0.x;
+            const double dy01 = p1.y - p0.y;
+            const double dx12 = p2.x - p1.x;
+            const double dy12 = p2.y - p1.y;
             const double len01 = std::hypot(dx01, dy01);
             const double len12 = std::hypot(dx12, dy12);
 
@@ -339,7 +362,7 @@ class SimplifiedControllerNode : public rclcpp::Node {
                 const double th1 = std::atan2(dy12, dx12);
                 double dth = normalizeAngle(th1 - th0);
                 const double seg_len = len12;
-                const double kappa = std::fabs(dth) / std::max(seg_len, 1e-6); // 曲率 = d_theta / d_length
+                const double kappa = std::fabs(dth) / std::max(seg_len, 1e-6);  // 曲率 = d_theta / d_length
                 sum_abs_curvature += kappa;
                 curvature_samples += 1;
             }
@@ -347,25 +370,23 @@ class SimplifiedControllerNode : public rclcpp::Node {
             i += 1;
         }
 
-        const double mean_abs_curvature = (curvature_samples > 0)
-            ? (sum_abs_curvature / static_cast<double>(curvature_samples)) : 0.0;
+        const double mean_abs_curvature =
+            (curvature_samples > 0) ? (sum_abs_curvature / static_cast<double>(curvature_samples)) : 0.0;
 
         // 根据平均曲率线性插值计算前瞻距离
         // 曲率越大，前瞻距离越小
         double alpha = 0.0;
         if (mean_abs_curvature <= curvature_low_) {
-            alpha = 0.0; // 低曲率，使用最大前瞻距离
+            alpha = 0.0;  // 低曲率，使用最大前瞻距离
         } else if (mean_abs_curvature >= curvature_high_) {
-            alpha = 1.0; // 高曲率，使用最小前瞻距离
+            alpha = 1.0;  // 高曲率，使用最小前瞻距离
         } else {
             // 在中间区域线性插值
-            alpha = (mean_abs_curvature - curvature_low_)
-                  / std::max(1e-9, (curvature_high_ - curvature_low_));
+            alpha = (mean_abs_curvature - curvature_low_) / std::max(1e-9, (curvature_high_ - curvature_low_));
         }
 
-        const double lookahead = max_lookahead_distance_
-            - alpha * (max_lookahead_distance_ - min_lookahead_distance_);
-        
+        const double lookahead = max_lookahead_distance_ - alpha * (max_lookahead_distance_ - min_lookahead_distance_);
+
         return std::clamp(lookahead, min_lookahead_distance_, max_lookahead_distance_);
     }
 
@@ -383,6 +404,8 @@ class SimplifiedControllerNode : public rclcpp::Node {
         prev_ex_ = 0.0;
         prev_ey_ = 0.0;
         has_prev_time_ = false;
+        has_prev_yaw_ = false;
+        prev_yaw_ = 0.0;
     }
 
     void publishSimulatedTransform(const rclcpp::Time &now) {
@@ -425,10 +448,11 @@ class SimplifiedControllerNode : public rclcpp::Node {
     double kp_xy_, ki_xy_, kd_xy_, kp_yaw_;
     double max_vx_, max_vy_, max_wz_;
     double cmd_accel_limit_linear_, cmd_accel_limit_angular_;
+    double prediction_time_factor_;
 
     // 新增: 动态前瞻距离参数
     bool enable_dynamic_lookahead_;
-    double lookahead_distance_; // 固定值 (备用)
+    double lookahead_distance_;  // 固定值 (备用)
     double min_lookahead_distance_, max_lookahead_distance_;
     double curvature_window_distance_;
     double curvature_low_, curvature_high_;
@@ -439,6 +463,10 @@ class SimplifiedControllerNode : public rclcpp::Node {
     double integral_x_{0.0}, integral_y_{0.0};
     double prev_ex_{0.0}, prev_ey_{0.0};
     double last_cmd_vx_{0.0}, last_cmd_vy_{0.0}, last_cmd_wz_{0.0};
+
+    // --- 新增: 用于航向角预测 ---
+    bool has_prev_yaw_{false};
+    double prev_yaw_{0.0};
 
     // 仿真
     bool simulate_{false};

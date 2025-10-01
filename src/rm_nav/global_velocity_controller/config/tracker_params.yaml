@@ -5,6 +5,8 @@ global_velocity_controller:
     target_speed: 2.0
     heading_kp: 1.0
     external_override_timeout: 0.2
+    # Heading prediction factor (0.0~1.0)
+    prediction_time_factor: 1.0
 
     enable_dynamic_lookahead: true
     min_lookahead_distance: 0.3

@@ -7,7 +7,11 @@ MEM_KB=$(grep MemTotal /proc/meminfo | awk '{print $2}')
 MEM_THRESHOLD_KB=$((8 * 1024 * 1024))
 
 # 编译前置驱动
-cp src/rm_driver/livox_ros_driver2/package_ROS2.xml src/rm_driver/livox_ros_driver2/package.xml
+
+if [ ! -f "src/rm_driver/livox_ros_driver2/package.xml" ]; then
+    echo "package.xml not found, copying from package_ROS2.xml"
+    cp src/rm_driver/livox_ros_driver2/package_ROS2.xml src/rm_driver/livox_ros_driver2/package.xml
+fi
 colcon build --symlink-install --parallel-workers 4 --packages-select livox_ros_driver2 --cmake-args -DROS_EDITION=ROS2 -DHUMBLE_ROS=humble -DCMAKE_BUILD_TYPE=Release
 
 source ./install/setup.zsh
