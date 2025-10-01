@@ -208,6 +208,8 @@ class SimplifiedControllerNode : public rclcpp::Node {
         // double wz_cmd = kp_yaw_ * yaw_error;
 
         // 7. 将map系速度指令转换为base_link系
+        // vx_map_cmd = 1;
+        // vy_map_cmd = 0;
         const double cos_yaw = std::cos(current_yaw);
         const double sin_yaw = std::sin(current_yaw);
         double vx_base_raw = cos_yaw * vx_map_cmd + sin_yaw * vy_map_cmd;
