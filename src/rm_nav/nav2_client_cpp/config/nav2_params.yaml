@@ -330,8 +330,8 @@ planner_server:
     planner_plugins: ["GridBased"]
     GridBased:
       # plugin: "nav2_navfn_planner/NavfnPlanner"
-      plugin: "nav2_smac_planner/SmacPlanner2D"
-      # plugin: "nav2_theta_star_planner/ThetaStarPlanner"
+      # plugin: "nav2_smac_planner/SmacPlanner2D"
+      plugin: "nav2_theta_star_planner/ThetaStarPlanner"
       tolerance: 1.0
       allow_unknown: true
       downsample_costmap: false  # 地图很大时可设 true
@@ -341,7 +341,7 @@ planner_server:
       smoother:
         max_iterations: 200
         w_smooth: 0.8          # ↑ 从 0.3 提高，路径更直
-        w_data: 0.1           # ↓ 从 0.2 降低，更少“贴原路径”
+        w_data: 0.2           # ↓ 从 0.2 降低，更少“贴原路径”
         tolerance: 1.0e-10
         do_refinement: true
         refinement_num: 1

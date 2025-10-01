@@ -9,8 +9,8 @@ global_velocity_controller:
     global_costmap_topic: "/global_costmap/costmap"
 
     # PID gains
-    kp_xy: 2.0
-    ki_xy: 0.0
+    kp_xy: 3.0
+    ki_xy: 3.0
     kd_xy: 0.5
 
     kp_yaw: 0.0
@@ -18,8 +18,8 @@ global_velocity_controller:
     kd_yaw: 0.0
 
     # Limits
-    max_vx: 2.0
-    max_vy: 2.0
+    max_vx: 3.0
+    max_vy: 3.0
     max_wz: 0.0
 
     anti_windup_integral_limit_xy: 0.5

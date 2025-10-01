@@ -56,7 +56,7 @@ def generate_launch_description():
                     'escape_treat_unknown_as_lethal': False,
                     'escape_speed': 0.75,
                     'escape_goal_tolerance': 0.05,
-                    'escape_max_radius_cells': 100,
+                    'escape_max_radius_cells': 300,
                 }
             ]
         )

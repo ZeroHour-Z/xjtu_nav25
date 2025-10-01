@@ -1,5 +1,6 @@
 #include "geometry_msgs/msg/pose_stamped.hpp"
 #include "geometry_msgs/msg/twist.hpp"
+#include "nav_msgs/msg/occupancy_grid.hpp"
 #include "nav_msgs/msg/path.hpp"
 #include "rclcpp/rclcpp.hpp"
 #include "tf2/LinearMath/Matrix3x3.h"
@@ -12,7 +13,9 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <limits>
 #include <memory>
+#include <queue>
 #include <rclcpp/logging.hpp>
 #include <string>
 #include <vector>
@@ -21,6 +24,8 @@
 #include "global_velocity_controller/simulator_2d.hpp"
 // 注意: gvc::Simulator2D 依赖于 types.hpp, 这里假设它存在
 #include "global_velocity_controller/types.hpp"
+
+const double SIM_OMEGA = 1.0;
 
 using std::placeholders::_1;
 
@@ -35,6 +40,7 @@ public:
     declare_parameter<std::string>("base_frame", "base_link");
     declare_parameter<std::string>("cmd_vel_topic", "/cmd_vel");
     declare_parameter<std::string>("path_topic", "/plan");
+    declare_parameter<std::string>("global_costmap_topic", "/global_costmap/costmap");
 
     // 位控PID增益
     declare_parameter<double>("kp_xy", 1.5);
@@ -70,6 +76,16 @@ public:
     declare_parameter<double>("sim_init_yaw", 0.0);
     declare_parameter<double>("max_dt", 0.05);
 
+    // Escape mode params (from gvc_old)
+    declare_parameter<int>("escape_free_cost_value", 0);
+    declare_parameter<int>("escape_target_cost_threshold", 0);
+    declare_parameter<int>("escape_enter_cost_threshold", 1);
+    declare_parameter<int>("escape_lethal_threshold", 100);
+    declare_parameter<bool>("escape_treat_unknown_as_lethal", true);
+    declare_parameter<double>("escape_speed", 0.4);
+    declare_parameter<double>("escape_goal_tolerance", 0.05);
+    declare_parameter<int>("escape_max_radius_cells", 200);
+
     // --- 获取参数 ---
     map_frame_              = get_parameter("map_frame").as_string();
     base_frame_             = get_parameter("base_frame").as_string();
@@ -97,6 +113,16 @@ public:
     curvature_low_             = get_parameter("curvature_low").as_double();
     curvature_high_            = get_parameter("curvature_high").as_double();
 
+    // Escape params
+    escape_free_cost_value_         = get_parameter("escape_free_cost_value").as_int();
+    escape_target_cost_threshold_   = get_parameter("escape_target_cost_threshold").as_int();
+    escape_enter_cost_threshold_    = get_parameter("escape_enter_cost_threshold").as_int();
+    escape_lethal_threshold_        = get_parameter("escape_lethal_threshold").as_int();
+    escape_treat_unknown_as_lethal_ = get_parameter("escape_treat_unknown_as_lethal").as_bool();
+    escape_speed_                   = get_parameter("escape_speed").as_double();
+    escape_goal_tolerance_          = get_parameter("escape_goal_tolerance").as_double();
+    escape_max_radius_cells_        = get_parameter("escape_max_radius_cells").as_int();
+
     // 配置仿真器
     simulate_ = get_parameter("simulate").as_bool();
     if (simulate_) {
@@ -115,8 +141,15 @@ public:
         get_parameter("path_topic").as_string(), 10,
         std::bind(&SimplifiedControllerNode::onPath, this, _1));
 
+    costmap_sub_ = create_subscription<nav_msgs::msg::OccupancyGrid>(
+        get_parameter("global_costmap_topic").as_string(), 1,
+        std::bind(&SimplifiedControllerNode::onCostmap, this, _1));
+
+    // Timers: separate escape and normal control loops
     control_timer_ = create_wall_timer(std::chrono::milliseconds(20),
                                        std::bind(&SimplifiedControllerNode::onControlTimer, this));
+    escape_timer_ = create_wall_timer(std::chrono::milliseconds(50),
+                                      std::bind(&SimplifiedControllerNode::onEscapeTimer, this));
 
     RCLCPP_INFO(get_logger(), "Simplified Position-Control PID Node has started.");
   }
@@ -135,14 +168,16 @@ private:
     }
   }
 
+  void onCostmap(const nav_msgs::msg::OccupancyGrid::SharedPtr msg) {
+    last_costmap_ = *msg;
+    has_costmap_  = true;
+  }
+
   void onControlTimer() {
     const rclcpp::Time now = get_clock()->now();
-    if (!has_path_) {
-      // 没有路径时，停止机器人，并在仿真下持续发布TF以确保存在 base_link 帧
-      publishZeroTwist();
-      if (simulate_) {
-        publishSimulatedTransform(now);
-      }
+    // If currently escaping, skip normal control (escape timer will publish)
+    if (in_escape_mode_) {
+      if (simulate_) publishSimulatedTransform(now);
       return;
     }
 
@@ -154,10 +189,19 @@ private:
       return;
     }
 
+    if (!has_path_) {
+      // 没有路径也不在逃逸时，停止机器人，并在仿真下持续发布TF
+      publishZeroTwist();
+      if (simulate_) publishSimulatedTransform(now);
+      return;
+    }
+
     // 2. 在路径上寻找前瞻点(Lookahead Point)
     geometry_msgs::msg::Point lookahead_pt;
-    bool                      is_final_goal = false;
-    if (!findLookaheadPoint(current_x, current_y, lookahead_pt, is_final_goal)) {
+    geometry_msgs::msg::Point closest_pt;
+
+    bool is_final_goal = false;
+    if (!findLookaheadPoint(current_x, current_y, lookahead_pt, closest_pt, is_final_goal)) {
       RCLCPP_INFO_ONCE(get_logger(), "Path tracking complete or invalid path.");
       has_path_ = false; // 标记路径结束
       publishZeroTwist();
@@ -166,11 +210,22 @@ private:
     }
 
     // 3. 计算位置误差 (在map坐标系下)
-    const double ex = lookahead_pt.x - current_x;
-    const double ey = lookahead_pt.y - current_y;
+    const double ex_lookahead = lookahead_pt.x - current_x;
+    const double ey_lookahead = lookahead_pt.y - current_y;
+
+    double ex_closest = closest_pt.x - current_x;
+    double ey_closest = closest_pt.y - current_y;
+
+    // if (std::hypot(ex_closest, ey_closest) > 0.2) {
+    //   ex_closest = 0.0;
+    //   ey_closest = 0.0;
+    //   geometry_msgs::msg::Twist cmd;
+    //   cmd_pub_->publish(cmd);
+    //   return;
+    // }
 
     // 如果接近最终目标点，则进行特殊处理
-    const double dist_to_goal = std::hypot(ex, ey);
+    const double dist_to_goal = std::hypot(ex_lookahead, ey_lookahead);
     if (is_final_goal && dist_to_goal < goal_tolerance_) {
       RCLCPP_INFO(get_logger(), "Goal reached!");
       has_path_ = false; // 标记路径结束
@@ -213,23 +268,26 @@ private:
     has_prev_yaw_ = true;
 
     // 5. 位置PID控制器 -> 输出期望速度 (在map坐标系下)
-    integral_x_ += ex * dt;
-    integral_y_ += ey * dt;
+    integral_x_ += ex_closest * dt;
+    integral_y_ += ey_closest * dt;
     // 简单的积分抗饱和
-    integral_x_ = std::clamp(integral_x_, -1.0, 1.0);
-    integral_y_ = std::clamp(integral_y_, -1.0, 1.0);
+    integral_x_ = std::clamp(integral_x_, -0.5, 0.5);
+    integral_y_ = std::clamp(integral_y_, -0.5, 0.5);
+    RCLCPP_INFO(this->get_logger(), "Integral terms: ix=%.3f, iy=%.3f", ki_xy_ * integral_x_,
+                ki_xy_ * integral_y_);
+    const double deriv_ex = (ex_lookahead - prev_ex_) / dt;
+    const double deriv_ey = (ey_lookahead - prev_ey_) / dt;
+    const double px       = ex_lookahead + 0.0 * ex_closest;
+    const double py       = ey_lookahead + 0.0 * ey_closest;
 
-    const double deriv_ex = (ex - prev_ex_) / dt;
-    const double deriv_ey = (ey - prev_ey_) / dt;
+    double vx_map_cmd = kp_xy_ * px + ki_xy_ * integral_x_ + kd_xy_ * deriv_ex;
+    double vy_map_cmd = kp_xy_ * py + ki_xy_ * integral_y_ + kd_xy_ * deriv_ey;
 
-    double vx_map_cmd = kp_xy_ * ex + ki_xy_ * integral_x_ + kd_xy_ * deriv_ex;
-    double vy_map_cmd = kp_xy_ * ey + ki_xy_ * integral_y_ + kd_xy_ * deriv_ey;
-
-    prev_ex_ = ex;
-    prev_ey_ = ey;
+    prev_ex_ = px;
+    prev_ey_ = py;
 
     // 6. 航向控制,下位机只需要给出角度即可
-    double target_yaw = std::atan2(ey, ex);
+    double target_yaw = std::atan2(ey_lookahead, ex_lookahead);
 
     // 7. 将map系速度指令转换为base_link系
     const double cos_yaw     = std::cos(predicted_yaw);
@@ -262,7 +320,136 @@ private:
     last_cmd_wz_ = cmd.angular.z;
 
     if (simulate_) {
-      simulator_.integrateBodyCommand({cmd.linear.x, cmd.linear.y, 1.0}, dt);
+      simulator_.integrateBodyCommand({cmd.linear.x, cmd.linear.y, SIM_OMEGA}, dt);
+      publishSimulatedTransform(now);
+    }
+  }
+
+  // Escape timer callback: handles detection and motion during escape
+  void onEscapeTimer() {
+    const rclcpp::Time now = get_clock()->now();
+
+    // 1. 获取机器人当前位姿
+    double current_x, current_y, current_yaw;
+    if (!getCurrentPose(current_x, current_y, current_yaw)) {
+      RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 2000, "Could not get current robot pose.");
+      if (in_escape_mode_) publishZeroTwist();
+      return;
+    }
+
+    // 2. ESCAPE 模式检测与进入条件
+    int8_t     current_cost      = -1;
+    const bool have_current_cost = has_costmap_ && getCostAt(current_x, current_y, current_cost);
+    const bool at_target_cost    = have_current_cost && current_cost >= 0 &&
+                                static_cast<int>(current_cost) <= escape_target_cost_threshold_;
+
+    bool enter_blocked = false;
+    if (have_current_cost) {
+      if (current_cost < 0)
+        enter_blocked = escape_treat_unknown_as_lethal_;
+      else
+        enter_blocked = static_cast<int>(current_cost) >= escape_enter_cost_threshold_;
+      RCLCPP_INFO_THROTTLE(get_logger(), *get_clock(), 2000, "Current cost: %d, enter_blocked: %d",
+                           current_cost, enter_blocked);
+    }
+
+    if (!in_escape_mode_ && enter_blocked) {
+      int cgx = 0, cgy = 0;
+      if (worldToGrid(current_x, current_y, cgx, cgy)) {
+        int tgx = 0, tgy = 0;
+        if (findNearestFreeCell(cgx, cgy, tgx, tgy)) {
+          double tx = 0.0, ty = 0.0;
+          if (gridToWorld(tgx, tgy, tx, ty)) {
+            escape_target_x_m_ = tx;
+            escape_target_y_m_ = ty;
+            in_escape_mode_    = true;
+            RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 2000,
+                                 "Entering ESCAPE mode. Target: (%.3f, %.3f) from cost %d", tx, ty,
+                                 static_cast<int>(current_cost));
+          }
+        }
+      }
+    }
+
+    // If not in escape mode, nothing to do here
+    if (!in_escape_mode_) {
+      return;
+    }
+
+    // 3. ESCAPE 运行逻辑与退出条件
+    if (at_target_cost) {
+      in_escape_mode_ = false;
+      integral_x_ = integral_y_ = 0.0;
+      has_prev_time_            = false;
+      RCLCPP_INFO_THROTTLE(get_logger(), *get_clock(), 2000,
+                           "Exited ESCAPE mode (reached cost <= %d).",
+                           escape_target_cost_threshold_);
+      return; // let normal control resume on next cycle
+    }
+
+    double dx   = escape_target_x_m_ - current_x;
+    double dy   = escape_target_y_m_ - current_y;
+    double dist = std::hypot(dx, dy);
+    if (dist < escape_goal_tolerance_) {
+      int cgx = 0, cgy = 0;
+      if (worldToGrid(current_x, current_y, cgx, cgy)) {
+        int tgx = 0, tgy = 0;
+        if (findNearestFreeCell(cgx, cgy, tgx, tgy) &&
+            gridToWorld(tgx, tgy, escape_target_x_m_, escape_target_y_m_)) {
+          RCLCPP_INFO_THROTTLE(get_logger(), *get_clock(), 2000,
+                               "ESCAPE re-target to (%.3f, %.3f)", escape_target_x_m_,
+                               escape_target_y_m_);
+          dx   = escape_target_x_m_ - current_x;
+          dy   = escape_target_y_m_ - current_y;
+          dist = std::hypot(dx, dy);
+        } else {
+          publishZeroTwist();
+          return;
+        }
+      }
+    }
+
+    if (!has_prev_time_) {
+      prev_time_     = now;
+      has_prev_time_ = true;
+      return;
+    }
+    double dt  = (now - prev_time_).seconds();
+    prev_time_ = now;
+    if (dt <= 0.0) return;
+    dt = std::min(dt, max_dt_);
+
+    double vx_map_cmd = 0.0, vy_map_cmd = 0.0;
+    if (dist > 1e-6) {
+      vx_map_cmd = escape_speed_ * dx / dist;
+      vy_map_cmd = escape_speed_ * dy / dist;
+    }
+
+    const double cos_yaw = std::cos(current_yaw);
+    const double sin_yaw = std::sin(current_yaw);
+    const double ux_b    = cos_yaw * vx_map_cmd + sin_yaw * vy_map_cmd;
+    const double uy_b    = -sin_yaw * vx_map_cmd + cos_yaw * vy_map_cmd;
+
+    const double cmd_vx_raw = std::clamp(ux_b, -max_vx_, max_vx_);
+    const double cmd_vy_raw = std::clamp(uy_b, -max_vy_, max_vy_);
+
+    const double max_dv = cmd_accel_limit_linear_ * dt;
+    double       vx_out = std::clamp(cmd_vx_raw, last_cmd_vx_ - max_dv, last_cmd_vx_ + max_dv);
+    double       vy_out = std::clamp(cmd_vy_raw, last_cmd_vy_ - max_dv, last_cmd_vy_ + max_dv);
+
+    geometry_msgs::msg::Twist cmd;
+    cmd.linear.x = vx_out;
+    cmd.linear.y = vy_out;
+    cmd.angular.x = current_yaw;
+    cmd.angular.z = std::atan2(dy, dx);
+    cmd_pub_->publish(cmd);
+
+    last_cmd_vx_ = cmd.linear.x;
+    last_cmd_vy_ = cmd.linear.y;
+    last_cmd_wz_ = cmd.angular.z;
+
+    if (simulate_) {
+      simulator_.integrateBodyCommand({cmd.linear.x, cmd.linear.y, SIM_OMEGA}, dt);
       publishSimulatedTransform(now);
     }
   }
@@ -296,8 +483,102 @@ private:
     }
   }
 
-  bool findLookaheadPoint(double rob_x, double rob_y, geometry_msgs::msg::Point& pt,
-                          bool& is_last) {
+  // ---- Escape helpers ----
+  bool worldToGrid(double x, double y, int& gx, int& gy) const {
+    if (!has_costmap_) return false;
+    const auto&  info  = last_costmap_.info;
+    const double rel_x = x - info.origin.position.x;
+    const double rel_y = y - info.origin.position.y;
+    if (info.resolution <= 0.0) return false;
+    gx = static_cast<int>(std::floor(rel_x / info.resolution));
+    gy = static_cast<int>(std::floor(rel_y / info.resolution));
+    if (gx < 0 || gy < 0 || gx >= static_cast<int>(info.width) ||
+        gy >= static_cast<int>(info.height))
+      return false;
+    return true;
+  }
+
+  bool gridToWorld(int gx, int gy, double& x, double& y) const {
+    if (!has_costmap_) return false;
+    const auto& info = last_costmap_.info;
+    if (gx < 0 || gy < 0 || gx >= static_cast<int>(info.width) ||
+        gy >= static_cast<int>(info.height))
+      return false;
+    x = info.origin.position.x + (static_cast<double>(gx) + 0.5) * info.resolution;
+    y = info.origin.position.y + (static_cast<double>(gy) + 0.5) * info.resolution;
+    return true;
+  }
+
+  bool getCostAt(double x, double y, int8_t& out_cost) const {
+    int gx, gy;
+    if (!worldToGrid(x, y, gx, gy)) return false;
+    const size_t idx = static_cast<size_t>(gy) * last_costmap_.info.width + static_cast<size_t>(gx);
+    if (idx >= last_costmap_.data.size()) return false;
+    out_cost = last_costmap_.data[idx];
+    return true;
+  }
+
+  bool findNearestFreeCell(int start_gx, int start_gy, int& out_gx, int& out_gy) const {
+    if (!has_costmap_) return false;
+    const auto& info   = last_costmap_.info;
+    const int   width  = static_cast<int>(info.width);
+    const int   height = static_cast<int>(info.height);
+    if (width <= 0 || height <= 0) return false;
+
+    const int                       total = width * height;
+    std::vector<uint8_t>            visited(static_cast<size_t>(total), 0);
+    std::queue<std::pair<int, int>> q;
+    std::queue<int>                 depth_q;
+    auto                            idx_of = [width](int x, int y) { return y * width + x; };
+
+    auto can_step = [&](int x, int y) {
+      if (x < 0 || y < 0 || x >= width || y >= height) return false;
+      const int    idx = idx_of(x, y);
+      const int8_t v   = last_costmap_.data[static_cast<size_t>(idx)];
+      if (v < 0) return !escape_treat_unknown_as_lethal_;
+      return static_cast<int>(v) < escape_lethal_threshold_;
+    };
+
+    auto push_if_valid = [&](int x, int y, int d) {
+      if (x < 0 || y < 0 || x >= width || y >= height) return;
+      const int idx = idx_of(x, y);
+      if (visited[static_cast<size_t>(idx)]) return;
+      visited[static_cast<size_t>(idx)] = 1;
+      q.emplace(x, y);
+      depth_q.emplace(d);
+    };
+
+    push_if_valid(start_gx, start_gy, 0);
+
+    const int dx8[8] = {1, -1, 0, 0, 1, 1, -1, -1};
+    const int dy8[8] = {0, 0, 1, -1, 1, -1, 1, -1};
+
+    while (!q.empty()) {
+      auto [cx, cy] = q.front();
+      q.pop();
+      int cur_d = depth_q.front();
+      depth_q.pop();
+
+      const int cidx = idx_of(cx, cy);
+      if (cidx < 0 || cidx >= total) continue;
+      const int8_t val = last_costmap_.data[static_cast<size_t>(cidx)];
+      if (val >= 0 && static_cast<int>(val) <= escape_target_cost_threshold_) {
+        out_gx = cx;
+        out_gy = cy;
+        return true;
+      }
+      if (cur_d >= escape_max_radius_cells_) continue;
+      for (int k = 0; k < 8; ++k) {
+        const int nx = cx + dx8[k];
+        const int ny = cy + dy8[k];
+        if (can_step(nx, ny)) push_if_valid(nx, ny, cur_d + 1);
+      }
+    }
+    return false;
+  }
+
+  bool findLookaheadPoint(double rob_x, double rob_y, geometry_msgs::msg::Point& pt_ahead,
+                          geometry_msgs::msg::Point& pt_closest, bool& is_last) {
     if (last_path_.poses.empty()) return false;
 
     is_last = false;
@@ -312,6 +593,7 @@ private:
       if (dist_sq < min_dist_sq) {
         min_dist_sq = dist_sq;
         closest_idx = i;
+        pt_closest  = last_path_.poses[i].pose.position; // 输出最近点
       }
     }
 
@@ -323,14 +605,14 @@ private:
       double dx = last_path_.poses[i].pose.position.x - rob_x;
       double dy = last_path_.poses[i].pose.position.y - rob_y;
       if (std::hypot(dx, dy) > current_lookahead_distance) {
-        pt = last_path_.poses[i].pose.position;
+        pt_ahead = last_path_.poses[i].pose.position;
         return true;
       }
     }
 
     // 如果遍历完路径都找不到，说明机器人已经接近终点，直接返回路径的最后一个点
-    pt      = last_path_.poses.back().pose.position;
-    is_last = true;
+    pt_ahead = last_path_.poses.back().pose.position;
+    is_last  = true;
     return true;
   }
 
@@ -437,12 +719,14 @@ private:
   }
 
   // ROS 接口
-  rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr cmd_pub_;
-  rclcpp::Subscription<nav_msgs::msg::Path>::SharedPtr    path_sub_;
-  rclcpp::TimerBase::SharedPtr                            control_timer_;
-  tf2_ros::Buffer                                         tf_buffer_;
-  tf2_ros::TransformListener                              tf_listener_;
-  std::unique_ptr<tf2_ros::TransformBroadcaster>          tf_broadcaster_;
+  rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr       cmd_pub_;
+  rclcpp::Subscription<nav_msgs::msg::Path>::SharedPtr          path_sub_;
+  rclcpp::Subscription<nav_msgs::msg::OccupancyGrid>::SharedPtr costmap_sub_;
+  rclcpp::TimerBase::SharedPtr                                  control_timer_;
+  rclcpp::TimerBase::SharedPtr                                  escape_timer_;
+  tf2_ros::Buffer                                               tf_buffer_;
+  tf2_ros::TransformListener                                    tf_listener_;
+  std::unique_ptr<tf2_ros::TransformBroadcaster>                tf_broadcaster_;
 
   // 路径和状态
   nav_msgs::msg::Path last_path_;
@@ -478,6 +762,21 @@ private:
   // 仿真
   bool             simulate_{false};
   gvc::Simulator2D simulator_{};
+
+  // Costmap and escape state
+  nav_msgs::msg::OccupancyGrid last_costmap_;
+  bool                         has_costmap_{false};
+  bool                         in_escape_mode_{false};
+  int                          escape_free_cost_value_{0};
+  int                          escape_target_cost_threshold_{0};
+  int                          escape_enter_cost_threshold_{1};
+  int                          escape_lethal_threshold_{100};
+  bool                         escape_treat_unknown_as_lethal_{true};
+  double                       escape_speed_{0.4};
+  double                       escape_goal_tolerance_{0.05};
+  int                          escape_max_radius_cells_{200};
+  double                       escape_target_x_m_{0.0};
+  double                       escape_target_y_m_{0.0};
 };
 
 int main(int argc, char** argv) {
