@@ -656,7 +656,7 @@ class GlobalVelocityControllerNode : public rclcpp::Node {
 
         double ux_m = kp_xy_ * ex + 0 * ki_xy_ * integral_x_ + kd_xy_ * dx_err;
         double uy_m = kp_xy_ * ey + 0 * ki_xy_ * integral_y_ + kd_xy_ * dy_err;
-        double uw = kp_yaw_ * ew + ki_yaw_ * integral_w_ + kd_yaw_ * dw_err;
+        // double uw = kp_yaw_ * ew + ki_yaw_ * integral_w_ + kd_yaw_ * dw_err;
 
         // RCLCPP_INFO_THROTTLE(this->get_logger(), *this->get_clock(), 1000, "kd=(%.3f %.3f)", kd_xy_ * dx_err,
         //                      kd_xy_ * dy_err);
@@ -664,16 +664,18 @@ class GlobalVelocityControllerNode : public rclcpp::Node {
 
         const double ux_b = cos_yaw * ux_m + sin_yaw * uy_m;
         const double uy_b = -sin_yaw * ux_m + cos_yaw * uy_m;
+        // const double ux_b = ux_m;
+        // const double uy_b = uy_m;
 
         const double cmd_vx_raw = std::clamp(ux_b, -max_vx_, max_vx_);
         const double cmd_vy_raw = std::clamp(uy_b, -max_vy_, max_vy_);
-        const double cmd_wz_raw = std::clamp(uw, -max_wz_, max_wz_);
+        // const double cmd_wz_raw = std::clamp(uw, -max_wz_, max_wz_);
 
         const double target_speed_mag = std::hypot(target_vx_m, target_vy_m);
 
         double cmd_vx_out = cmd_vx_raw;
         double cmd_vy_out = cmd_vy_raw;
-        double cmd_wz_out = cmd_wz_raw;
+        double cmd_wz_out = 0;
 
         if (target_speed_mag < stop_speed_threshold_ && std::fabs(target_wz) < stop_angular_threshold_) {
             cmd_vx_out = 0.0;
@@ -688,11 +690,11 @@ class GlobalVelocityControllerNode : public rclcpp::Node {
 
             const double dvx = std::clamp(cmd_vx_raw - last_cmd_vx_, -max_dv, max_dv);
             const double dvy = std::clamp(cmd_vy_raw - last_cmd_vy_, -max_dv, max_dv);
-            const double dwz = std::clamp(cmd_wz_raw - last_cmd_wz_, -max_dw, max_dw);
+            // const double dwz = std::clamp(cmd_wz_raw - last_cmd_wz_, -max_dw, max_dw);
 
             cmd_vx_out = last_cmd_vx_ + dvx;
             cmd_vy_out = last_cmd_vy_ + dvy;
-            cmd_wz_out = last_cmd_wz_ + dwz;
+            // cmd_wz_out = last_cmd_wz_ + dwz;
 
             if (std::fabs(cmd_vx_out) < velocity_deadband_) cmd_vx_out = 0.0;
             if (std::fabs(cmd_vy_out) < velocity_deadband_) cmd_vy_out = 0.0;
@@ -702,12 +704,12 @@ class GlobalVelocityControllerNode : public rclcpp::Node {
         geometry_msgs::msg::Twist cmd;
         cmd.linear.x = cmd_vx_out;
         cmd.linear.y = cmd_vy_out;
-        cmd.angular.z = cmd_wz_out;
+        cmd.angular.x = yaw_map_to_base;
         cmd_pub_->publish(cmd);
 
         last_cmd_vx_ = cmd.linear.x;
         last_cmd_vy_ = cmd.linear.y;
-        last_cmd_wz_ = cmd.angular.z;
+        // last_cmd_wz_ = cmd.angular.z;
 
         // Loopback simulation: integrate pose and publish TF
         if (simulate_) {

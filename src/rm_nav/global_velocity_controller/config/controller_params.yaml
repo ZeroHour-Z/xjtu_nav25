@@ -9,7 +9,7 @@ global_velocity_controller:
     global_costmap_topic: "/global_costmap/costmap"
 
     # PID gains
-    kp_xy: 4.0
+    kp_xy: 1.0
     ki_xy: 0.0
     kd_xy: 0.5
 

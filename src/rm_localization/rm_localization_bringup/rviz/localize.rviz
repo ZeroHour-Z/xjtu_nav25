@@ -7,7 +7,9 @@ Panels:
         - /Global Options1
         - /Status1
         - /Mapping1/CloudReg1
-        - /Navigation1
+        - /TF1
+        - /TF1/Frames1
+        - /TF1/Tree1
       Splitter Ratio: 0.5
     Tree Height: 719
   - Class: rviz_common/Selection
@@ -49,39 +51,6 @@ Visualization Manager:
       Plane Cell Count: 10
       Reference Frame: <Fixed Frame>
       Value: true
-    - Class: rviz_default_plugins/TF
-      Enabled: true
-      Frame Timeout: 15
-      Frames:
-        All Enabled: true
-        base_link:
-          Value: true
-        body:
-          Value: true
-        camera_init:
-          Value: true
-        map:
-          Value: true
-        map3d:
-          Value: true
-        odom:
-          Value: true
-      Marker Scale: 1
-      Name: TF
-      Show Arrows: true
-      Show Axes: true
-      Show Names: false
-      Tree:
-        map:
-          map3d:
-            camera_init:
-              body:
-                base_link:
-                  {}
-          odom:
-            {}
-      Update Interval: 0
-      Value: true
     - Class: rviz_common/Group
       Displays:
         - Alpha: 1
@@ -99,7 +68,7 @@ Visualization Manager:
           Enabled: true
           Invert Rainbow: false
           Max Color: 255; 255; 255
-          Max Intensity: 168
+          Max Intensity: 167
           Min Color: 0; 0; 0
           Min Intensity: 0
           Name: CloudReg
@@ -202,8 +171,6 @@ Visualization Manager:
         map:
           Value: true
         map3d:
-          Value: false
-        odom:
           Value: true
       Marker Scale: 3
       Name: TF
@@ -217,8 +184,6 @@ Visualization Manager:
               body:
                 base_link:
                   {}
-          odom:
-            {}
       Update Interval: 0
       Value: true
     - Class: rviz_common/Group
@@ -292,7 +257,7 @@ Visualization Manager:
   Enabled: true
   Global Options:
     Background Color: 48; 48; 48
-    Fixed Frame: camera_init
+    Fixed Frame: map
     Frame Rate: 24
   Name: root
   Tools:
@@ -335,25 +300,25 @@ Visualization Manager:
   Views:
     Current:
       Class: rviz_default_plugins/Orbit
-      Distance: 5.812022686004639
+      Distance: 13.396525382995605
       Enable Stereo Rendering:
         Stereo Eye Separation: 0.05999999865889549
         Stereo Focal Distance: 1
         Swap Stereo Eyes: false
         Value: false
       Focal Point:
-        X: 0.4670242667198181
-        Y: 0.7034821510314941
-        Z: -0.004604797810316086
+        X: 0.38758385181427
+        Y: -0.10558054596185684
+        Z: -0.01147935725748539
       Focal Shape Fixed Size: true
       Focal Shape Size: 0.05000000074505806
       Invert Z Axis: false
       Name: Current View
       Near Clip Distance: 0.009999999776482582
-      Pitch: 1.4797964096069336
+      Pitch: 1.4047969579696655
       Target Frame: <Fixed Frame>
       Value: Orbit (rviz)
-      Yaw: 4.8904008865356445
+      Yaw: 3.1603891849517822
     Saved: ~
 Window Geometry:
   Displays:

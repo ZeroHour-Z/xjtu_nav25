@@ -76,8 +76,8 @@ class HandlerNode : public rclcpp::Node {
    private:
     void onCmdVel(const geometry_msgs::msg::Twist::SharedPtr msg) {
         // RCLCPP_INFO(this->get_logger(),"cmd_vel:%f",msg->linear.x);
-        nav_info_.x_speed = msg->linear.x;
-        nav_info_.y_speed = msg->linear.y;
+        nav_info_.x_speed = msg->linear.x / 3.0;
+        nav_info_.y_speed = msg->linear.y / 3.0;
         nav_info_.yaw_current = msg->angular.x;
         nav_info_.yaw_desired = msg->angular.z;
     }
@@ -102,7 +102,8 @@ class HandlerNode : public rclcpp::Node {
 
         // 3. 协议验证：在转换成结构体后，检查帧尾等成员变量是否符合协议
         if (received_cmd.frame_tail != 0x21) {
-            // RCLCPP_WARN(this->get_logger(), "Invalid frame tail: expected 0x21, got 0x%02X", received_cmd.frame_tail);
+            // RCLCPP_WARN(this->get_logger(), "Invalid frame tail: expected 0x21, got 0x%02X",
+            // received_cmd.frame_tail);
             return;
         }
         // 4. 调用处理函数：所有检查通过后，数据有效，进行处理
