@@ -148,8 +148,8 @@ public:
     // Timers: separate escape and normal control loops
     control_timer_ = create_wall_timer(std::chrono::milliseconds(20),
                                        std::bind(&SimplifiedControllerNode::onControlTimer, this));
-    escape_timer_ = create_wall_timer(std::chrono::milliseconds(50),
-                                      std::bind(&SimplifiedControllerNode::onEscapeTimer, this));
+    escape_timer_  = create_wall_timer(std::chrono::milliseconds(50),
+                                       std::bind(&SimplifiedControllerNode::onEscapeTimer, this));
 
     RCLCPP_INFO(get_logger(), "Simplified Position-Control PID Node has started.");
   }
@@ -260,7 +260,7 @@ private:
       // 可调参数 prediction_time_factor_，建议设为0.5~1.0
       predicted_yaw = current_yaw + estimated_wz * dt * prediction_time_factor_;
       predicted_yaw = normalizeAngle(predicted_yaw);
-      RCLCPP_INFO_THROTTLE(this->get_logger(), *this->get_clock(), 1000,
+      RCLCPP_INFO_THROTTLE(this->get_logger(), *this->get_clock(), 100,
                            "Predicted yaw: %.3f (current: %.3f, estimated_wz: %.3f)", predicted_yaw,
                            current_yaw, estimated_wz);
     }
@@ -273,8 +273,8 @@ private:
     // 简单的积分抗饱和
     integral_x_ = std::clamp(integral_x_, -0.5, 0.5);
     integral_y_ = std::clamp(integral_y_, -0.5, 0.5);
-    RCLCPP_INFO(this->get_logger(), "Integral terms: ix=%.3f, iy=%.3f", ki_xy_ * integral_x_,
-                ki_xy_ * integral_y_);
+    // RCLCPP_INFO(this->get_logger(), "Integral terms: ix=%.3f, iy=%.3f", ki_xy_ * integral_x_,
+    // ki_xy_ * integral_y_);
     const double deriv_ex = (ex_lookahead - prev_ex_) / dt;
     const double deriv_ey = (ey_lookahead - prev_ey_) / dt;
     const double px       = ex_lookahead + 0.0 * ex_closest;
@@ -290,10 +290,15 @@ private:
     double target_yaw = std::atan2(ey_lookahead, ex_lookahead);
 
     // 7. 将map系速度指令转换为base_link系
-    const double cos_yaw     = std::cos(predicted_yaw);
-    const double sin_yaw     = std::sin(predicted_yaw);
-    double       vx_base_raw = cos_yaw * vx_map_cmd + sin_yaw * vy_map_cmd;
-    double       vy_base_raw = -sin_yaw * vx_map_cmd + cos_yaw * vy_map_cmd;
+    // current_yaw += ;
+    predicted_yaw        = current_yaw + 0.45 * std::hypot(vx_map_cmd, vy_map_cmd);
+    const double cos_yaw = std::cos(predicted_yaw);
+    const double sin_yaw = std::sin(predicted_yaw);
+
+    // vx_map_cmd         = 0.0;
+    // vy_map_cmd         = 0.0;
+    double vx_base_raw = cos_yaw * vx_map_cmd + sin_yaw * vy_map_cmd;
+    double vy_base_raw = -sin_yaw * vx_map_cmd + cos_yaw * vy_map_cmd;
 
     // 8. 应用速度和加速度限制
     double vx_out = std::clamp(vx_base_raw, -max_vx_, max_vx_);
@@ -396,9 +401,8 @@ private:
         int tgx = 0, tgy = 0;
         if (findNearestFreeCell(cgx, cgy, tgx, tgy) &&
             gridToWorld(tgx, tgy, escape_target_x_m_, escape_target_y_m_)) {
-          RCLCPP_INFO_THROTTLE(get_logger(), *get_clock(), 2000,
-                               "ESCAPE re-target to (%.3f, %.3f)", escape_target_x_m_,
-                               escape_target_y_m_);
+          RCLCPP_INFO_THROTTLE(get_logger(), *get_clock(), 2000, "ESCAPE re-target to (%.3f, %.3f)",
+                               escape_target_x_m_, escape_target_y_m_);
           dx   = escape_target_x_m_ - current_x;
           dy   = escape_target_y_m_ - current_y;
           dist = std::hypot(dx, dy);
@@ -438,8 +442,8 @@ private:
     double       vy_out = std::clamp(cmd_vy_raw, last_cmd_vy_ - max_dv, last_cmd_vy_ + max_dv);
 
     geometry_msgs::msg::Twist cmd;
-    cmd.linear.x = vx_out;
-    cmd.linear.y = vy_out;
+    cmd.linear.x  = vx_out;
+    cmd.linear.y  = vy_out;
     cmd.angular.x = current_yaw;
     cmd.angular.z = std::atan2(dy, dx);
     cmd_pub_->publish(cmd);

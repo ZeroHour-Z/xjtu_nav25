@@ -9,7 +9,7 @@
     preprocess:
       lidar_type: 1
       scan_line: 6
-      blind: 4.0
+      blind: 2.0
       time_scale: 1e-3
 
     mapping:

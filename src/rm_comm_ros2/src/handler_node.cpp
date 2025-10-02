@@ -116,6 +116,8 @@ private:
     last_cmd_ = received_cmd;
     // RCLCPP_WARN(this->get_logger(), "Bullet: %d", (int)received_cmd.bullet_remain);
     // handleNavCommand(last_cmd_);
+    // RCLCPP_INFO(this->get_logger(), "Time_test: %f Now: %f", received_cmd.time_test,
+    //             static_cast<float>(this->now().seconds() - 1759396608.000000));
   }
 
   void shmRxLoop() {
@@ -181,8 +183,10 @@ private:
     double target_x = 0.0, target_y = 0.0;
     (void) this->get_parameter("target_x", target_x);
     (void) this->get_parameter("target_y", target_y);
-    nav_info_.x_target = static_cast<float>(target_x);
-    nav_info_.y_target = static_cast<float>(target_y);
+    nav_info_.x_target  = static_cast<float>(target_x);
+    nav_info_.y_target  = static_cast<float>(target_y);
+    // nav_info_.time_test = static_cast<float>(this->now().seconds() - 1759396608.000000);
+    // RCLCPP_INFO(this->get_logger(), "send: %f", nav_info_.time_test);
 
     std_msgs::msg::UInt8MultiArray out_msg;
     const uint8_t*                 byte_ptr  = reinterpret_cast<const uint8_t*>(&nav_info_);

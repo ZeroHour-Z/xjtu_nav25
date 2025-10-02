@@ -112,18 +112,18 @@ private:
       return;
     }
 
-    if (use_shm_) {
-      if (!tx_shm_) {
-        RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 2000,
-                             "tx_shm not ready; drop tx");
-        return;
-      }
-      // copy into shared memory and signal
-      std::memcpy(tx_shm_->data, msg->data.data(), 64);
-      tx_shm_->len = 64;
-      if (tx_sem_) sem_post(tx_sem_);
-      return;
-    }
+    // if (use_shm_) {
+    //   if (!tx_shm_) {
+    //     RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 2000,
+    //                          "tx_shm not ready; drop tx");
+    //     return;
+    //   }
+    //   // copy into shared memory and signal
+    //   std::memcpy(tx_shm_->data, msg->data.data(), 64);
+    //   tx_shm_->len = 64;
+    //   if (tx_sem_) sem_post(tx_sem_);
+    //   return;
+    // }
 
     if (fd_ < 0) {
       // 触发重连由读线程负责，此处提示
